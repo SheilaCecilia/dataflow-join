@@ -546,6 +546,96 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
         }
     }
 
+        //*****************zwy:Start****************//
+    pub fn intersect_only<P,K,K1, Valid,W>(&mut self, data: &mut Vec<(P, W)>, func1: &K, func2: &K1, valid: &Valid)
+        where K:Fn(&P)->Key, K1:Fn(&P)->Val, Valid:Fn(&T)->bool {
+
+        // sorting data by key allows us to re-use some work / compact representations.
+        //data.sort_unstable_by(|x,y| func(&x.0).cmp(&(func(&y.0))));
+        data.sort_unstable_by(|x,y| (func1(&x.0),func2(&x.0)).cmp(&(func1(&y.0),func2(&y.0))));
+
+        // counts for each value to validate
+        let mut temp = Vec::new();
+
+        // fingers into compacted data and uncommited updates.
+        let mut offset_cursor = 0;
+        let mut diffs_cursor = 0;
+
+        let mut index = 0;
+
+        let mut r_cursor = 0;
+
+        while index < data.len() {
+            let key1 = func1(&data[index].0);
+            let key2 = func2(&data[index].0);
+
+            // consider the amount of effort we are about to invest:
+            let mut effort = 16;
+
+            let temp_index = index + advance(&data[index..],|x|func1(&x.0)<= key1);
+            effort += temp_index - index;
+
+            // (i) position `self.compact` cursor so that we can re-use it.
+            let compact_slice = self.compact.values_from(&key1, &mut offset_cursor);
+
+            // (ii) prepare non-compact updates. if our effort level is large, consolidate.
+            let mut entry = self.edges.get_mut(&key1);
+            entry.as_mut().map(|x| x.expend(effort as u32));
+
+            // (iii) position `self.diffs` cursor so that we can re-use it.
+            let diffs_slice = self.diffs.values_from(&key1, &mut diffs_cursor);
+
+            let mut proposals = Vec::new();
+            for i in index .. temp_index{
+                proposals.push(func2(&data[i].0));
+            }
+
+            // set `temp` to be a vector of initially zero counts.
+            temp.clear();
+            temp.resize(proposals.len(), 0);
+
+            // (ia) update `temp` counts based on `self.edges[key]`, if it exists.
+            entry.as_mut().map(|x| x.intersect(&proposals[..], &mut temp));
+
+            // (ib, ic) update `temp` counts based on `self.compact` and `self.diffs`.
+            let mut c_cursor = 0;
+            let mut d_cursor = 0;
+
+            // walk proposals linearly (could gallop, if we felt strongly enough).
+            for (proposal, count) in proposals.iter().zip(temp.iter_mut()) {
+
+                // move c_cursor to where `proposal` would start ..
+                c_cursor += advance(&compact_slice[c_cursor..], |x| x < proposal);
+                while compact_slice.get(c_cursor) == Some(proposal) {
+                    *count += 1;
+                    c_cursor += 1;
+                }
+
+                // move d_cursor to where `proposal` would start ..
+                d_cursor += advance(&diffs_slice[d_cursor..], |x| &x.1 < proposal);
+                while diffs_slice.get(d_cursor).map(|x| &x.1) == Some(proposal) {
+                    if valid(&diffs_slice[d_cursor].2) {
+                        *count += diffs_slice[d_cursor].3;
+                    }
+                    d_cursor += 1;
+                }
+            }
+            //remove absent prefixes
+            let mut t_cursor = 0;
+
+            while index < temp_index{
+                if temp[t_cursor] != 0{
+                    data.swap(r_cursor,index);
+                    r_cursor += 1;
+                }
+                t_cursor += 1;
+                index += 1;
+            }
+        }
+        data.truncate(r_cursor);
+    }
+    //*****************zwy:End****************//
+
     /// Commits updates up to and including `time`.
     ///
     /// This merges any differences with time less or equal to `time`, and should probably only be called
