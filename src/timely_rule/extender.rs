@@ -12,7 +12,7 @@ use timely::dataflow::channels::pact::Exchange;
 use timely::progress::Timestamp;
 use timely::dataflow::operators::probe::Handle as ProbeHandle;
 
-use {Index, StreamPrefixExtender};
+use super::{Index, StreamPrefixExtender};
 
 /// An index materialized from streamed updates.
 ///
@@ -39,9 +39,9 @@ impl<K: Ord+Hash+Clone, V: Ord+Clone, H: Fn(K)->u64, T: Timestamp+Ord> IndexStre
     /// The `func` function compares timestamps, acting as either `lt` or `le` depending
     /// on the need.
     pub fn extend_using<P, L, F>(&self, logic: L, func: F) -> Rc<IndexExtender<K, V, T, P, L, H, F>>
-    where
-        L: Fn(&P)->K+'static,
-        F: Fn(&T, &T)->bool+'static
+        where
+            L: Fn(&P)->K+'static,
+            F: Fn(&T, &T)->bool+'static
     {
         Rc::new(IndexExtender {
             handle: self.handle.clone(),
@@ -60,12 +60,12 @@ impl<K: Ord+Hash+Clone, V: Ord+Clone, H: Fn(K)->u64, T: Timestamp+Ord> IndexStre
     /// or a mix of both. If neither stream has any data, you are probably using the wrong
     /// abstraction (though it will still work correctly).
     pub fn from<G>(hash: H, initially: &Stream<G, (K, V)>, updates: &Stream<G, ((K, V), i32)>) -> Self
-    where
-        G: Scope<Timestamp=T>,
-        K: ExchangeData,
-        V: ExchangeData,
-        T: Hash,
-        H: 'static
+        where
+            G: Scope<Timestamp=T>,
+            K: ExchangeData,
+            V: ExchangeData,
+            T: Hash,
+            H: 'static
     {
         use self::merge_sorter::MergeSorter;
 
@@ -88,44 +88,44 @@ impl<K: Ord+Hash+Clone, V: Ord+Clone, H: Fn(K)->u64, T: Timestamp+Ord> IndexStre
         let mut buffer2 = Vec::new();
 
         let handle = updates.binary_notify(initially, exch1, exch2, "Index", vec![],
-            //::<_,(),_,_,_>
-            move |input1, input2,_output,notificator| {
+                                           //::<_,(),_,_,_>
+                                           move |input1, input2,_output,notificator| {
 
 
-                // extract, enqueue updates.
-                input1.for_each(|time, data| {
-                    if false { _output.session(&time).give(()); }
-                    data.swap(&mut buffer1);
-                    map.entry(time.time().clone())
-                       .or_insert(Vec::new())
-                       .extend(buffer1.drain(..));
-                    notificator.notify_at(time.retain());
-                });
+                                               // extract, enqueue updates.
+                                               input1.for_each(|time, data| {
+                                                   if false { _output.session(&time).give(()); }
+                                                   data.swap(&mut buffer1);
+                                                   map.entry(time.time().clone())
+                                                       .or_insert(Vec::new())
+                                                       .extend(buffer1.drain(..));
+                                                   notificator.notify_at(time.retain());
+                                               });
 
-                // populate initial collection
-                input2.for_each(|time, data| {
-                    data.swap(&mut buffer2);
-                    if let Some(ref mut sorter) = sorter {
-                        sorter.push(&mut buffer2);
-                        notificator.notify_at(time.retain());
-                    }
-                });
+                                               // populate initial collection
+                                               input2.for_each(|time, data| {
+                                                   data.swap(&mut buffer2);
+                                                   if let Some(ref mut sorter) = sorter {
+                                                       sorter.push(&mut buffer2);
+                                                       notificator.notify_at(time.retain());
+                                                   }
+                                               });
 
-                notificator.for_each(|time,_,_| {
-                    // initialize if this is the first time
-                    if let Some(mut sorter) = sorter.take() {
-                        let mut sorted = Vec::new();
-                        sorter.finish_into(&mut sorted);
-                        let sum: usize = sorted.iter().map(|x| x.len()).sum();
-                        println!("worker {}: index built with {} elements", worker_index, sum);
-                        index_1.borrow_mut().initialize(&mut sorted);
-                    }
-                    // push updates if updates exist
-                    if let Some(mut list) = map.remove(time.time()) {
-                        index_1.borrow_mut().update(time.time().clone(), &mut list);
-                    }
-                });
-            }
+                                               notificator.for_each(|time,_,_| {
+                                                   // initialize if this is the first time
+                                                   if let Some(mut sorter) = sorter.take() {
+                                                       let mut sorted = Vec::new();
+                                                       sorter.finish_into(&mut sorted);
+                                                       let sum: usize = sorted.iter().map(|x| x.len()).sum();
+                                                       println!("worker {}: index built with {} elements", worker_index, sum);
+                                                       index_1.borrow_mut().initialize(&mut sorted);
+                                                   }
+                                                   // push updates if updates exist
+                                                   if let Some(mut list) = map.remove(time.time()) {
+                                                       index_1.borrow_mut().update(time.time().clone(), &mut list);
+                                                   }
+                                               });
+                                           }
         ).probe();
 
         IndexStream {
@@ -145,13 +145,13 @@ impl<K: Ord+Hash+Clone, V: Ord+Clone, H: Fn(K)->u64, T: Timestamp+Ord> IndexStre
 /// a "time validator" that indicates for times t1 and t2 whether updates at t1 should be
 /// included in answers for time t2.
 pub struct IndexExtender<K, V, T, P, L, H, F>
-where
-    K: Ord+Hash+Clone,
-    V: Ord+Clone,
-    T: Timestamp,
-    L: Fn(&P)->K,
-    H: Fn(K)->u64,
-    F: Fn(&T, &T)->bool,
+    where
+        K: Ord+Hash+Clone,
+        V: Ord+Clone,
+        T: Timestamp,
+        L: Fn(&P)->K,
+        H: Fn(K)->u64,
+        F: Fn(&T, &T)->bool,
 {
     handle: ProbeHandle<T>,
     index: Rc<RefCell<Index<K, V, T>>>,
@@ -162,16 +162,16 @@ where
 }
 
 impl<K, V, G, P, L, H, F, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K, V, G::Timestamp, P, L, H, F>>
-where
-    K: Ord+Hash+Clone+ExchangeData,
-    V: Ord+Clone+ExchangeData,
-    G: Scope,
-    G::Timestamp: Timestamp+Ord+Clone,//+::std::hash::Hash+Ord,
-    P: ExchangeData+Debug,
-    L: Fn(&P)->K+'static,
-    H: Fn(K)->u64+'static,
-    F: Fn(&G::Timestamp, &G::Timestamp)->bool+'static,
-    W: ExchangeData,
+    where
+        K: Ord+Hash+Clone+ExchangeData,
+        V: Ord+Clone+ExchangeData,
+        G: Scope,
+        G::Timestamp: Timestamp+Ord+Clone,//+::std::hash::Hash+Ord,
+        P: ExchangeData+Debug,
+        L: Fn(&P)->K+'static,
+        H: Fn(K)->u64+'static,
+        F: Fn(&G::Timestamp, &G::Timestamp)->bool+'static,
+        W: ExchangeData,
 {
     type Prefix = P;
     type Extension = V;
@@ -204,12 +204,12 @@ where
             input.for_each(|time, data| {
                 data.swap(&mut buffer1);
                 blocked.entry(time.retain())
-                       .or_insert(Vec::new())
-                       .extend(buffer1.drain(..))
-                });
+                    .or_insert(Vec::new())
+                    .extend(buffer1.drain(..))
+            });
 
             // scan each stashed element and see if it is time to process it.
-           for (time, data) in blocked.iter_mut() {
+            for (time, data) in blocked.iter_mut() {
                 // ok to process if no further updates less or equal to `time`.
                 if !handle.less_equal(time.time()) {
                     // pop the data out of the list; we'll clean up the entry later.
@@ -274,7 +274,7 @@ where
             }
 
             blocked.retain(|_, data| data.len() > 0);
-    	})
+        })
     }
 
     fn intersect(&self, stream: Stream<G, (Self::Prefix, Vec<Self::Extension>, W)>) -> Stream<G, (Self::Prefix, Vec<Self::Extension>, W)> {
@@ -295,8 +295,8 @@ where
             input.for_each(|time, data| {
                 data.swap(&mut buffer);
                 blocked.entry(time.retain())
-                       .or_insert(Vec::new())
-                       .extend(buffer.drain(..))
+                    .or_insert(Vec::new())
+                    .extend(buffer.drain(..))
             });
 
             for (time, data) in blocked.iter_mut() {

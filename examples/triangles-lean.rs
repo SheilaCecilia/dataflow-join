@@ -4,7 +4,7 @@ extern crate alg3_dynamic;
 
 use std::sync::{Arc, Mutex};
 
-use alg3_dynamic::*;
+use alg3_dynamic::timely_rule::*;
 
 use timely::dataflow::operators::*;
 

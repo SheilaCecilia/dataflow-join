@@ -10,7 +10,7 @@ use std::path::Path;
 
 use timely::dataflow::operators::*;
 
-use alg3_dynamic::*;
+use alg3_dynamic::timely_rule::*;
 
 type Node = u32;
 

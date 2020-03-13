@@ -4,7 +4,7 @@ extern crate alg3_dynamic;
 
 use std::sync::{Arc, Mutex};
 
-use alg3_dynamic::*;
+use alg3_dynamic::timely_rule::*;
 
 use timely::dataflow::operators::*;
 
@@ -46,12 +46,12 @@ fn main () {
             let forward = IndexStream::from(|k| k as u64, &Vec::new().to_stream(builder), &dG);
             let reverse = IndexStream::from(|k| k as u64, &Vec::new().to_stream(builder), &dG.map(|((src,dst),wgt)| ((dst,src),wgt)));
 
-            // dA(x,y) extends to z first through C(x,z) then B(y,z), both using forward indices.
+             //dA(x,y) extends to z first through C(x,z) then B(y,z), both using forward indices.
             let dK3dA = dG.extend(vec![Box::new(forward.extend_using(|&(x,_)| x, <_ as PartialOrd>::lt)),
                                        Box::new(forward.extend_using(|&(_,y)| y, <_ as PartialOrd>::lt))])
                           .flat_map(|(p,es,w)| es.into_iter().map(move |e| ((p.0,p.1,e), w)));
 
-            // dB(x,z) extends to y first through A(x,y) then C(y,z), using forward and reverse indices, respectively.
+             //dB(x,z) extends to y first through A(x,y) then C(y,z), using forward and reverse indices, respectively.
             let dK3dB = dG.extend(vec![Box::new(forward.extend_using(|&(x,_)| x, <_ as PartialOrd>::le)),
                                        Box::new(reverse.extend_using(|&(_,z)| z, <_ as PartialOrd>::lt))])
                           .flat_map(|(p,es,w)| es.into_iter().map(move |e| ((p.0,e,p.1), w)));
@@ -70,7 +70,7 @@ fn main () {
                        // .inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
                        .count()
                        .inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
-                       .inspect_batch(move |_,x| { 
+                       .inspect_batch(move |_,x| {
                             if let Ok(mut bound) = send.lock() {
                                 *bound += x[0];
                             }
