@@ -67,7 +67,7 @@ fn main () {
             // if the third argument is "inspect", report triangle counts.
             if inspect {
                 cliques.exchange(|x| (x.0).0 as u64)
-                       // .inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
+                        //.inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
                        .count()
                        .inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
                        .inspect_batch(move |_,x| {

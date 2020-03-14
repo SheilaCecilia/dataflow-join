@@ -4,10 +4,12 @@ use timely::Data;
 
 mod index;
 mod extender;
-pub mod motif;
+//pub mod motif;
 
 pub use self::index::Index;
 pub use self::extender::IndexStream;
+
+//use ::Indexable;
 
 /// Functionality used by GenericJoin to extend prefixes with new attributes.
 ///

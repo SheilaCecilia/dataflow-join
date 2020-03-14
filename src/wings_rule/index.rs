@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use self::edge_list_neu::EdgeList;
 use self::compact::CompactIndex;
 use self::unsorted::Unsorted;
+use ::Indexable;
 
 /// A multiversion multimap from `Key` to `Val`.
 ///
@@ -342,7 +343,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
 
     #[inline(never)]
     pub fn count<P,K,W>(&mut self, data: &mut Vec<(P, u64, u64, W)>, func: &K, start_time: &T, ident: u64)
-        where K:Fn(&P)->Key{
+        where K: Fn(&P)->Key{
 
         // sort data by key, to share work for the same key.
         data.sort_by(|x,y| func(&x.0).cmp(&(func(&y.0))));
@@ -385,16 +386,15 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
     }
 
     #[inline(never)]
-    pub fn forward_propose<P, K, K1, K2, W>(&mut self, data: &mut Vec<(P, Vec<Key>, W)>, func: &K, start_time: &T, get_src: &K1, get_dst: &K2)
-        where K:Fn(&P) -> Key,
-              K1:Fn(&P) -> Key,
-              K2:Fn(&P) -> Key,
+    pub fn forward_propose<P, K, W>(&mut self, data: &mut Vec<(P, Vec<Key>, W)>, func: &K, start_time: &T)
+        where K: Fn(&P) -> Key,
+              P: Indexable<Key>,
         {
 
         // sorting allows us to re-use computation for the same key, and simplifies the searching
         // of self.compact and self.diffs.
 
-        data.sort_unstable_by(|x,y| (func(&x.0), get_src(&x.0), get_dst(&x.0)).cmp(&(func(&y.0), get_src(&y.0), get_dst(&y.0))));
+        data.sort_unstable_by(|x,y| (func(&x.0), x.0.get_src(), x.0.get_dst()).cmp(&(func(&y.0), y.0.get_src(), y.0.get_dst())));
 
         // fingers into compacted data and uncommited updates.
         let mut offset_cursor = 0;
@@ -408,7 +408,6 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
         let mut index = 0;
         while index < data.len() {
 
-            //println!("a:{:?}",index);
             let key = func(&data[index].0);
             proposals.clear();
 
@@ -423,7 +422,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
             let values = self.diffs.values_from(&key, &mut diffs_cursor);
 
             for &(ref _key, ref val, ref time, wgt) in values.iter() {
-                if time < start_time {
+                if time < start_time{
                     proposals.push((val.clone(), wgt));
                 }
             }
@@ -432,17 +431,19 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
             let mut dst_cursor = 0;
             while index < data.len() && key == func(&data[index].0) {
 
-                let src = get_src(&data[index].0);
+                let src = data[index].0.get_src();
 
                 if src < key {
                     // (id): consolidate all the counts that we added in, keep positive counts.
                     consolidate_proposals(&mut proposals);
 
                     //for all src with src < key, in self.diffs only edges with less timestamp can be seen, propose them all
-                    while index < data.len() && func(&data[index].0) == key && get_src(&data[index].0) < key {
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() < key {
                         for &(ref val, cnt) in &proposals {
                             for _ in 0..cnt {
-                                data[index].1.push(val.clone());
+                                if !data[index].0.find(val){
+                                    data[index].1.push(val.clone());
+                                }
                             }
                         }
                         index += 1;
@@ -450,8 +451,8 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                 }
                 else if src == key {
                     //re-use computation for the same key, src
-                    while index < data.len() && func(&data[index].0) == key && get_src(&data[index].0) == src {
-                        let dst = get_dst(&data[index].0);
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src {
+                        let dst = data[index].0.get_dst();
 
                         //for src with src == key, except edges with less timestamp, edges (key -> extension) with the same timestamp
                         //and extension < dst can be seen
@@ -465,10 +466,12 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                         consolidate_proposals(&mut proposals);
 
                         //propose for those with the same key, src and dst
-                        while index < data.len() && func(&data[index].0) == key && get_src(&data[index].0) == src && get_dst(&data[index].0) == dst {
+                        while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src && data[index].0.get_dst() == dst {
                             for &(ref val, cnt) in &proposals {
                                 for _ in 0..cnt {
-                                    data[index].1.push(val.clone());
+                                    if !data[index].0.find(val){
+                                        data[index].1.push(val.clone());
+                                    }
                                 }
                             }
                             index += 1;
@@ -478,7 +481,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                 else if src > key {
                     //all edges with less equal timestamp can be seen,re-use computation from (src == key)
                     while dst_cursor < values.len() {
-                        if values[dst_cursor].2 == *start_time {
+                        if values[dst_cursor].2 == *start_time{
                             proposals.push((values[dst_cursor].1.clone(), values[dst_cursor].3));
                         }
                         dst_cursor += 1;
@@ -491,7 +494,9 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                     while index < data.len() && func(&data[index].0) == key{
                         for &(ref val, cnt) in &proposals {
                             for _ in 0..cnt {
-                                data[index].1.push(val.clone());
+                                if !data[index].0.find(val){
+                                    data[index].1.push(val.clone());
+                                }
                             }
                         }
                         index += 1;
@@ -501,11 +506,11 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
         }
     }
 
-    pub fn reverse_propose<P, K, K1, K2, W>(&mut self, data: &mut Vec<(P, Vec<Key>, W)>, func: &K, start_time: &T, get_src: &K1, get_dst: &K2)
-        where K:Fn(&P) -> Key,
-              K1:Fn(&P) -> Key,
-              K2:Fn(&P) -> Key,{
-        data.sort_unstable_by(|x,y| (func(&x.0), get_src(&x.0), get_dst(&x.0)).cmp(&(func(&y.0), get_src(&y.0), get_dst(&y.0))));
+    pub fn reverse_propose<P, K, W>(&mut self, data: &mut Vec<(P, Vec<Key>, W)>, func: &K, start_time: &T)
+        where K: Fn(&P) -> Key,
+              P: Indexable<Key>,
+    {
+        data.sort_unstable_by(|x,y| (func(&x.0), x.0.get_src(), x.0.get_dst()).cmp(&(func(&y.0), y.0.get_src(), y.0.get_dst())));
 
         // fingers into compacted data and uncommited updates.
         let mut offset_cursor = 0;
@@ -519,7 +524,6 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
         let mut index = 0;
         while index < data.len() {
 
-            //println!("ar:{:?}",index);
             let key = func(&data[index].0);
             proposals.clear();
 
@@ -534,7 +538,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
             let values = self.diffs.values_from(&key, &mut diffs_cursor);
 
             for &(ref _key, ref val, ref time, wgt) in values.iter() {
-                if time < &start_time {
+                if time < &start_time{
                     proposals.push((val.clone(), wgt));
                 }
             }
@@ -546,26 +550,30 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
 
             while index < data.len() && key == func(&data[index].0) {
 
-                let dst = get_dst(&data[index].0);
-                let src = get_src(&data[index].0);
+                let dst = data[index].0.get_dst();
+                let src = data[index].0.get_src();
 
                 if index > 0{
-                    while index < data.len() && func(&data[index].0) == key && get_src(&data[index].0) == get_src(&data[index - 1].0){
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == data[index - 1].0.get_src(){
                         // extension < src && key >= dst (re-use the computation with the same src)
-                        while index < data.len() && func(&data[index].0) == key && get_src(&data[index].0)  == get_src(&data[index - 1].0) && get_dst(&data[index].0) <= key{
+                        while index < data.len() && func(&data[index].0) == key && data[index].0.get_src()  == data[index - 1].0.get_src() && data[index].0.get_dst() <= key{
                             for &(ref val, cnt) in &proposals_without_equal_src {
                                 for _ in 0..cnt {
-                                    data[index].1.push(val.clone());
+                                    if !data[index].0.find(val){
+                                        data[index].1.push(val.clone());
+                                    }
                                 }
                             }
                             index += 1;
                         }
 
                         // extension <> src && key < dst
-                        while index < data.len() && func(&data[index].0) == key && get_src(&data[index].0)  == get_src(&data[index - 1].0){
+                        while index < data.len() && func(&data[index].0) == key && data[index].0.get_src()  == data[index - 1].0.get_src(){
                             for &(ref val, cnt) in &proposals_with_equal_src {
                                 for _ in 0..cnt {
-                                    data[index].1.push(val.clone());
+                                    if !data[index].0.find(val){
+                                        data[index].1.push(val.clone());
+                                    }
                                 }
                             }
                             index += 1;
@@ -585,7 +593,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                 if dst <= key {// propose extension < src
 
                     while src_cursor < values.len() && values[src_cursor].1 < src {
-                        if values[src_cursor].2 == *start_time {
+                        if values[src_cursor].2 == *start_time{
                             proposals.push((values[src_cursor].1.clone(), values[src_cursor].3));
                         }
                         src_cursor += 1;
@@ -596,10 +604,12 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                     proposals_without_equal_src = proposals.clone();
 
                     // propose for all with the same key, src and dst (dst <= key)
-                    while index < data.len() && func(&data[index].0) == key && get_src(&data[index].0) == src && get_dst(&data[index].0) <= key {
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src && data[index].0.get_dst() <= key {
                         for &(ref val, cnt) in &proposals {
                             for _ in 0..cnt {
-                                data[index].1.push(val.clone());
+                                if !data[index].0.find(val){
+                                    data[index].1.push(val.clone());
+                                }
                             }
                         }
                         index += 1;
@@ -608,7 +618,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                 else if dst > key { // propose extension <= src
 
                     while src_cursor < values.len()&& values[src_cursor].1 <= src {
-                        if values[src_cursor].2 == *start_time {
+                        if values[src_cursor].2 == *start_time{
                             proposals.push((values[src_cursor].1.clone(), values[src_cursor].3));
                         }
                         src_cursor += 1;
@@ -619,10 +629,12 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                     proposals_with_equal_src = proposals.clone();
 
                     // propose for all with the same key ,src and dst (dst > key)
-                    while index < data.len() && func(&data[index].0) == key && get_src(&data[index].0) == src {
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src {
                         for &(ref val, cnt) in &proposals {
                             for _ in 0..cnt {
-                                data[index].1.push(val.clone());
+                                if !data[index].0.find(val){
+                                    data[index].1.push(val.clone());
+                                }
                             }
                         }
                         index += 1;
@@ -633,10 +645,9 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
     }
 
     #[inline(never)]
-    pub fn intersect<P, F, W, K1, K2>(&mut self, data: &mut Vec<(P, Vec<Key>, W)>, func: &F, is_forward: bool, start_time: &T, get_src: &K1, get_dst: &K2)
+    pub fn intersect<P, F, W>(&mut self, data: &mut Vec<(P, Vec<Key>, W)>, func: &F, is_forward: bool, start_time: &T)
         where F: Fn(&P)->Key,
-              K1:Fn(&P) -> Key,
-              K2:Fn(&P) -> Key,
+              P: Indexable<Key>,
     {
 
         // sorting data by key allows us to re-use some work / compact representations.
@@ -677,8 +688,8 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
             // we may have multiple records with the same key, do them all.
             while index < data.len() && func(&data[index].0) == key {
 
-                let src = get_src(&data[index].0);
-                let dst = get_dst(&data[index].0);
+                let src = data[index].0.get_src();
+                let dst = data[index].0.get_dst();
 
                 // in this context, we only worry about the proposals of the record.
                 let proposals = &mut data[index].1;
@@ -738,11 +749,10 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
         }
     }
 
-    pub fn intersect_only<P,K1,K2,K3,K4,W>(&mut self, data: &mut Vec<(P, W)>, func1: &K1, func2: &K2, is_forward:bool, start_time: &T, get_src: &K3, get_dst: &K4)
-        where K1:Fn(&P)->Key,
-              K2:Fn(&P)->Key,
-              K3:Fn(&P)->Key,
-              K4:Fn(&P)->Key,
+    pub fn intersect_only<P,K1,K2,W>(&mut self, data: &mut Vec<(P, W)>, func1: &K1, func2: &K2, is_forward:bool, start_time: &T)
+        where K1: Fn(&P)->Key,
+              K2: Fn(&P)->Key,
+              P: Indexable<Key>,
     {
 
         // sorting data by key allows us to re-use some work / compact representations.
@@ -809,8 +819,8 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                 // move d_cursor to where `proposal` would start ..
                 d_cursor += advance(&diffs_slice[d_cursor..], |x| &x.1 < proposal);
 
-                let src = get_src(&data[index].0);
-                let dst = get_dst(&data[index].0);
+                let src = data[index].0.get_src();
+                let dst = data[index].0.get_dst();
 
                 while diffs_slice.get(d_cursor).map(|x| &x.1) == Some(proposal) {
                     if (start_time < &diffs_slice[d_cursor].2)

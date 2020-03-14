@@ -13,6 +13,7 @@ use timely::progress::Timestamp;
 use timely::dataflow::operators::probe::Handle as ProbeHandle;
 
 use super::{Index, StreamPrefixExtender};
+//use ::Indexable;
 
 /// An index materialized from streamed updates.
 ///
@@ -167,7 +168,7 @@ impl<K, V, G, P, L, H, F, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K, 
         V: Ord+Clone+ExchangeData,
         G: Scope,
         G::Timestamp: Timestamp+Ord+Clone,//+::std::hash::Hash+Ord,
-        P: ExchangeData+Debug,
+        P: ExchangeData+Debug,//+Indexable<V>,
         L: Fn(&P)->K+'static,
         H: Fn(K)->u64+'static,
         F: Fn(&G::Timestamp, &G::Timestamp)->bool+'static,

@@ -13,6 +13,7 @@ use timely::progress::Timestamp;
 use timely::dataflow::operators::probe::Handle as ProbeHandle;
 
 use super::{Index, StreamPrefixExtender};
+use ::Indexable;
 
 /// An index materialized from streamed updates.
 ///
@@ -40,11 +41,10 @@ impl<K: Ord+Hash+Clone, H: Fn(K)->u64, T: Timestamp+Ord> IndexStream<K, H, T> {
     /// The `logic` function maps prefixes to index keys.
     /// The `func` function compares timestamps, acting as either `lt` or `le` depending
     /// on the need.
-    pub fn extend_using<P, L, L1, L2>(&self, logic: L, get_src: L1, get_dst: L2) -> Rc<IndexExtender<K, T, P, L, L1, L2, H>>
+    pub fn extend_using<P, L>(&self, logic: L) -> Rc<IndexExtender<K, T, P, L, H>>
         where
             L: Fn(&P)->K+'static,
-            L1: Fn(&P)->K+'static,
-            L2: Fn(&P)->K+'static,
+            P: Indexable<K>,
     {
         Rc::new(IndexExtender {
             handle: self.handle.clone(),
@@ -52,8 +52,6 @@ impl<K: Ord+Hash+Clone, H: Fn(K)->u64, T: Timestamp+Ord> IndexStream<K, H, T> {
             hash: self.hash.clone(),
             is_forward: self.is_forward,
             logic: Rc::new(logic),
-            get_src: Rc::new(get_src),
-            get_dst: Rc::new(get_dst),
             phantom: PhantomData,
         })
     }
@@ -149,13 +147,11 @@ impl<K: Ord+Hash+Clone, H: Fn(K)->u64, T: Timestamp+Ord> IndexStream<K, H, T> {
 /// index simply by specifying how to extract a `&K` from a `&P`. In addition, we wrap up
 /// a "time validator" that indicates for times t1 and t2 whether updates at t1 should be
 /// included in answers for time t2.
-pub struct IndexExtender<K, T, P, L, L1, L2, H>
+pub struct IndexExtender<K, T, P, L, H>
     where
         K: Ord+Hash+Clone,
         T: Timestamp,
         L: Fn(&P)->K,
-        L1: Fn(&P)->K,
-        L2: Fn(&P)->K,
         H: Fn(K)->u64,
        // F: Fn(&T, &T)->bool,
 {
@@ -163,22 +159,18 @@ pub struct IndexExtender<K, T, P, L, L1, L2, H>
     index: Rc<RefCell<Index<K, T>>>,
     hash: Rc<H>,
     logic: Rc<L>,
-    get_src: Rc<L1>,
-    get_dst: Rc<L2>,
     is_forward: bool,
     phantom: PhantomData<P>,
 }
 
-impl<K, G, P, L, L1, L2, H, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K, G::Timestamp, P, L, L1, L2, H>>
+impl<K, G, P, L, H, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K, G::Timestamp, P, L, H>>
     where
         K: Ord+Hash+Clone+ExchangeData,
         //V: Ord+Clone+ExchangeData,
         G: Scope,
         G::Timestamp: Timestamp+Ord+Clone,//+::std::hash::Hash+Ord,
-        P: ExchangeData+Debug,
+        P: ExchangeData+Debug+Indexable<K>,
         L: Fn(&P)->K+'static,
-        L1: Fn(&P)->K+'static,
-        L2: Fn(&P)->K+'static,
         H: Fn(K)->u64+'static,
        // F: Fn(&G::Timestamp, &G::Timestamp)->bool+'static,
         W: ExchangeData,
@@ -192,7 +184,7 @@ impl<K, G, P, L, L1, L2, H, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K
         let index = self.index.clone();
         let logic1 = self.logic.clone();
         let logic2 = self.logic.clone();
-        let is_forward = self.is_forward;
+        //let is_forward = self.is_forward;
 
         let handle = self.handle.clone();
         let mut blocked = HashMap::new();//vec![];
@@ -238,8 +230,6 @@ impl<K, G, P, L, L1, L2, H, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K
         let hash = self.hash.clone();
         let logic1 = self.logic.clone();
         let logic2 = self.logic.clone();
-        let get_src = self.get_src.clone();
-        let get_dst = self.get_dst.clone();
         let handle = self.handle.clone();
         let is_forward = self.is_forward;
 
@@ -276,10 +266,10 @@ impl<K, G, P, L, L1, L2, H, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K
 
                         let mut data = list.drain(..).map(|(p,s)| (p,vec![],s)).collect::<Vec<_>>();
                         if is_forward{
-                            (*index).borrow_mut().forward_propose(&mut data, &*logic2, &time.time(), &*get_src, &*get_dst);
+                            (*index).borrow_mut().forward_propose(&mut data, &*logic2, &time.time());
                         }
                         else{
-                            (*index).borrow_mut().reverse_propose(&mut data, &*logic2, &time.time(), &*get_src, &*get_dst);
+                            (*index).borrow_mut().reverse_propose(&mut data, &*logic2, &time.time());
                         }
                         let mut session = output.session(&time);
                         for x in data.drain(..) {
@@ -300,8 +290,6 @@ impl<K, G, P, L, L1, L2, H, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K
         let hash = self.hash.clone();
         let logic1 = self.logic.clone();
         let logic2 = self.logic.clone();
-        let get_src = self.get_src.clone();
-        let get_dst = self.get_dst.clone();
         let is_forward = self.is_forward;
         let index = self.index.clone();
         let handle = self.handle.clone();
@@ -323,7 +311,7 @@ impl<K, G, P, L, L1, L2, H, W> StreamPrefixExtender<G, W> for Rc<IndexExtender<K
 
                 // ok to process if no further updates less or equal to `time`.
                 if !handle.less_equal(time.time()) {
-                    (*index).borrow_mut().intersect(data, &*logic2, is_forward, &time.time(), &*get_src, &*get_dst);
+                    (*index).borrow_mut().intersect(data, &*logic2, is_forward, &time.time());
                     output.session(&time).give_iterator(data.drain(..));
                 }
             }

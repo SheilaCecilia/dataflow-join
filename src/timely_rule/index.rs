@@ -7,6 +7,8 @@ use self::edge_list_neu::EdgeList;
 use self::compact::CompactIndex;
 use self::unsorted::Unsorted;
 
+use ::Indexable;
+
 /// A multiversion multimap from `Key` to `Val`.
 ///
 /// An `Index` represents a multiversion `(Key, Val)` relation keyed on the first field.
@@ -386,7 +388,8 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
     /// Proposes extensions for prefixes based on the index.
     #[inline(never)]
     pub fn propose<P, K, Valid,W>(&mut self, data: &mut Vec<(P, Vec<Val>, W)>, func: &K, valid: &Valid)
-        where K:Fn(&P)->Key, Valid:Fn(&T)->bool {
+        where K:Fn(&P)->Key, Valid:Fn(&T)->bool, //P: Indexable<Val>
+    {
 
         // sorting allows us to re-use computation for the same key, and simplifies the searching
         // of self.compact and self.diffs.
@@ -567,7 +570,7 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
 
         while index < data.len() {
             let key1 = func1(&data[index].0);
-            let key2 = func2(&data[index].0);
+            //let key2 = func2(&data[index].0);
 
             // consider the amount of effort we are about to invest:
             let mut effort = 16;

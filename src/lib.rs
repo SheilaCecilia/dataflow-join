@@ -28,3 +28,20 @@ extern crate timely;
 
 pub mod timely_rule;
 pub mod wings_rule;
+
+pub trait Indexable<Val>{
+    fn index(&self, index: usize) -> Val;
+    fn get_src(&self) -> Val;
+    fn get_dst(&self) -> Val;
+    fn find(&self, &Val) -> bool;
+}
+
+pub type Node = u32;
+pub type Edge = (Node, Node);
+
+impl Indexable<Node> for Vec<Node>{
+    #[inline(always)] fn index(&self, index: usize) -> Node { self[index] }
+    #[inline(always)] fn get_src(&self) -> Node { self[0] }
+    #[inline(always)] fn get_dst(&self) -> Node { self[1] }
+    #[inline(always)] fn find(&self, element: &Node) -> bool { self.contains(element) }
+}
