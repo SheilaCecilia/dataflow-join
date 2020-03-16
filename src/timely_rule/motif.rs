@@ -17,7 +17,7 @@ use timely::dataflow::operators::*;
 
 use super::index::Index;
 use super::{IndexStream, StreamPrefixExtender, GenericJoin};
-use ::Indexable;
+//use ::Indexable;
 
 pub type Node = u32;
 pub type Edge = (Node, Node);

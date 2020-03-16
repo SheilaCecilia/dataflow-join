@@ -4,7 +4,7 @@ use timely::Data;
 
 mod index;
 mod extender;
-//pub mod motif;
+pub mod motif;
 
 pub use self::index::Index;
 pub use self::extender::IndexStream;

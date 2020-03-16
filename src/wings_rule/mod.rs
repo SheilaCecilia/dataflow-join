@@ -8,7 +8,7 @@ mod intersector;
 
 pub use self::index::Index;
 pub use self::extender::IndexStream;
-
+pub use self::intersector::IntersectOnly;
 //use ::Indexable;
 
 /// Functionality used by GenericJoin to extend prefixes with new attributes.
