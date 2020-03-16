@@ -34,6 +34,8 @@ pub trait Indexable<Val>{
     fn get_src(&self) -> Val;
     fn get_dst(&self) -> Val;
     fn find(&self, &Val) -> bool;
+    fn length(&self) -> usize;
+    fn push(&mut self, node: Val);
 }
 
 pub type Node = u32;
@@ -44,4 +46,6 @@ impl Indexable<Node> for Vec<Node>{
     #[inline(always)] fn get_src(&self) -> Node { self[0] }
     #[inline(always)] fn get_dst(&self) -> Node { self[1] }
     #[inline(always)] fn find(&self, element: &Node) -> bool { self.contains(element) }
+    #[inline(always)] fn length(&self) -> usize {self.len()}
+    #[inline(always)] fn push(&mut self, node: Node) { self.push(node)}
 }
