@@ -836,7 +836,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
             let mut t_cursor = 0;
 
             while index < temp_index{
-                if temp[t_cursor] != 0{
+                if temp[t_cursor] != 0||(r_cursor > 0 && func1(&data[index].0) == func1(&data[r_cursor - 1].0) && func2(&data[index].0) == func2(&data[r_cursor - 1].0)){
                     data.swap(r_cursor,index);
                     r_cursor += 1;
                 }
@@ -846,19 +846,6 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
         }
         data.truncate(r_cursor);
     }
-
-//    fn consolidate_proposals(proposals: &mut Vec<(Key, i32)>){
-//        if proposals.len() > 0 {
-//            proposals.sort_by(|x, y| x.0.cmp(&y.0));
-//            for cursor in 0..proposals.len() - 1 {
-//                if proposals[cursor].0 == proposals[cursor + 1].0 {
-//                    proposals[cursor + 1].1 += proposals[cursor].1;
-//                    proposals[cursor].1 = 0;
-//                }
-//            }
-//            proposals.retain(|x| x.1 > 0);
-//        }
-//    }
 
     /// Commits updates up to and including `time`.
     ///

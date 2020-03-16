@@ -7,7 +7,7 @@ use self::edge_list_neu::EdgeList;
 use self::compact::CompactIndex;
 use self::unsorted::Unsorted;
 
-use ::Indexable;
+//use ::Indexable;
 
 /// A multiversion multimap from `Key` to `Val`.
 ///
@@ -627,7 +627,7 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
             let mut t_cursor = 0;
 
             while index < temp_index{
-                if temp[t_cursor] != 0{
+                if temp[t_cursor] > 0||(r_cursor > 0 && func1(&data[index].0) == func1(&data[r_cursor - 1].0) && func2(&data[index].0) == func2(&data[r_cursor - 1].0)){
                     data.swap(r_cursor,index);
                     r_cursor += 1;
                 }
