@@ -17,7 +17,7 @@ use timely::dataflow::operators::*;
 
 use super::index::Index;
 use super::{IndexStream, StreamPrefixExtender, GenericJoin};
-//use ::Indexable;
+use ::Indexable;
 
 pub type Node = u32;
 pub type Edge = (Node, Node);
@@ -140,7 +140,7 @@ impl<G: Scope, H1: Fn(Node)->u64+'static, H2: Fn(Node)->u64+'static> GraphStream
         let (attrs, _remap, relations) = order_attributes(relation, &relations);
         let query_plan = plan_query(&relations, relation);
 
-        let source = self.updates.map(|((x,y),w)| ([x, y], w));
+        let source = self.updates.map(|((x,y),w)| (vec![x, y], w));
         let stream = if query_plan.len() > 0 {
 
             // we do the first extension using arrays rather than vecs, to prove a point.
@@ -177,7 +177,7 @@ impl<G: Scope, H1: Fn(Node)->u64+'static, H2: Fn(Node)->u64+'static> GraphStream
     /// Extends an indexable prefix, using a plan described by several (attr, is_forward, is_prior) cues.
     fn extend_attribute<'a, P>(&self, stream: &Stream<G, (P, i32)>, plan: &[(usize, bool, bool)]) -> Stream<G, (P, Vec<u32>, i32)>
         where G: 'a,
-              P: ::std::fmt::Debug+ExchangeData+IndexNode {
+              P: ::std::fmt::Debug+ExchangeData+Indexable<Node> {
         let mut extenders: Vec<Box<StreamPrefixExtender<G, i32, Prefix=P, Extension=Node>+'a>> = vec![];
         for &(attribute, is_forward, prior) in plan {
             extenders.push(match (is_forward, prior) {

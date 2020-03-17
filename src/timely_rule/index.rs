@@ -7,7 +7,7 @@ use self::edge_list_neu::EdgeList;
 use self::compact::CompactIndex;
 use self::unsorted::Unsorted;
 
-//use ::Indexable;
+use ::Indexable;
 
 /// A multiversion multimap from `Key` to `Val`.
 ///
@@ -343,7 +343,7 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
     /// tuple.
     #[inline(never)]
     pub fn count<P,K,Valid,W>(&mut self, data: &mut Vec<(P, u64, u64, W)>, func: &K, _valid: &Valid, ident: u64)
-        where K:Fn(&P)->Key, Valid:Fn(&T)->bool {
+        where K:Fn(&P)->Key, Valid:Fn(&T)->bool{
 
         // sort data by key, to share work for the same key.
         data.sort_by(|x,y| func(&x.0).cmp(&(func(&y.0))));
@@ -388,7 +388,7 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
     /// Proposes extensions for prefixes based on the index.
     #[inline(never)]
     pub fn propose<P, K, Valid,W>(&mut self, data: &mut Vec<(P, Vec<Val>, W)>, func: &K, valid: &Valid)
-        where K:Fn(&P)->Key, Valid:Fn(&T)->bool, //P: Indexable<Val>
+        where K:Fn(&P)->Key, Valid:Fn(&T)->bool, P: Indexable<Val>
     {
 
         // sorting allows us to re-use computation for the same key, and simplifies the searching
@@ -445,7 +445,9 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
             while index < data.len() && func(&data[index].0) == key {
                 for &(ref val, cnt) in &proposals {
                     for _ in 0 .. cnt {
-                        data[index].1.push(val.clone());
+                        if !data[index].0.find(val){
+                            data[index].1.push(val.clone());
+                        }
                     }
                 }
                 index += 1;
@@ -549,7 +551,6 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
         }
     }
 
-    //*****************zwy:Start****************//
     pub fn intersect_only<P,K,K1, Valid,W>(&mut self, data: &mut Vec<(P, W)>, func1: &K, func2: &K1, valid: &Valid)
         where K:Fn(&P)->Key, K1:Fn(&P)->Val, Valid:Fn(&T)->bool {
 
@@ -637,7 +638,6 @@ impl<Key: Ord+Hash+Clone, Val: Ord+Clone, T: Ord+Clone> Index<Key, Val, T> {
         }
         data.truncate(r_cursor);
     }
-    //*****************zwy:End****************//
 
     /// Commits updates up to and including `time`.
     ///
