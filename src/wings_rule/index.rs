@@ -389,11 +389,9 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
     pub fn forward_propose<P, K, W>(&mut self, data: &mut Vec<(P, Vec<Key>, W)>, func: &K, start_time: &T)
         where K: Fn(&P) -> Key,
               P: Indexable<Key>,
-        {
-
+    {
         // sorting allows us to re-use computation for the same key, and simplifies the searching
         // of self.compact and self.diffs.
-
         data.sort_unstable_by(|x,y| (func(&x.0), x.0.get_src(), x.0.get_dst()).cmp(&(func(&y.0), y.0.get_src(), y.0.get_dst())));
 
         // fingers into compacted data and uncommited updates.
@@ -518,7 +516,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
         // let mut diffs = &self.diffs[..];
 
         // temporary array to stage proposals
-        let mut proposals      = Vec::<(Key, i32)>::new();
+        let mut proposals = Vec::<(Key, i32)>::new();
 
         // current position in `data`.
         let mut index = 0;
@@ -545,51 +543,12 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
 
             //propose key <- extension, if (extension < src) || (extension == src && key < dst)
             let mut src_cursor = 0;
-            let mut proposals_without_equal_src = Vec::<(Key, i32)>::new();
-            let mut proposals_with_equal_src = Vec::<(Key, i32)>::new();
 
             while index < data.len() && key == func(&data[index].0) {
 
                 let dst = data[index].0.get_dst();
                 let src = data[index].0.get_src();
 
-                if index > 0{
-                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == data[index - 1].0.get_src(){
-                        // extension < src && key >= dst (re-use the computation with the same src)
-                        while index < data.len() && func(&data[index].0) == key && data[index].0.get_src()  == data[index - 1].0.get_src() && data[index].0.get_dst() <= key{
-                            for &(ref val, cnt) in &proposals_without_equal_src {
-                                for _ in 0..cnt {
-                                    if !data[index].0.find(val){
-                                        data[index].1.push(val.clone());
-                                    }
-                                }
-                            }
-                            index += 1;
-                        }
-
-                        // extension <> src && key < dst
-                        while index < data.len() && func(&data[index].0) == key && data[index].0.get_src()  == data[index - 1].0.get_src(){
-                            for &(ref val, cnt) in &proposals_with_equal_src {
-                                for _ in 0..cnt {
-                                    if !data[index].0.find(val){
-                                        data[index].1.push(val.clone());
-                                    }
-                                }
-                            }
-                            index += 1;
-                        }
-                    }
-                }
-
-                if index >= data.len(){
-                    break;
-                }
-
-                if key != func(&data[index].0){
-                    break;
-                }
-
-                //re-use the computation from extension < previous_src
                 if dst <= key {// propose extension < src
 
                     while src_cursor < values.len() && values[src_cursor].1 < src {
@@ -601,7 +560,6 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
 
                     // (id): consolidate all the counts that we added in, keep positive counts.
                     consolidate_proposals(&mut proposals);
-                    proposals_without_equal_src = proposals.clone();
 
                     // propose for all with the same key, src and dst (dst <= key)
                     while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src && data[index].0.get_dst() <= key {
@@ -626,7 +584,6 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
 
                     // (id): consolidate all the counts that we added in, keep positive counts.
                     consolidate_proposals(&mut proposals);
-                    proposals_with_equal_src = proposals.clone();
 
                     // propose for all with the same key ,src and dst (dst > key)
                     while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src {
@@ -649,7 +606,6 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
         where F: Fn(&P)->Key,
               P: Indexable<Key>,
     {
-
         // sorting data by key allows us to re-use some work / compact representations.
         data.sort_unstable_by(|x,y| func(&x.0).cmp(&(func(&y.0))));
 
@@ -723,10 +679,10 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                     d_cursor += advance(&diffs_slice[d_cursor..], |x| &x.1 < proposal);
 
                     while diffs_slice.get(d_cursor).map(|x| &x.1) == Some(proposal) {
-                        if (start_time < &diffs_slice[d_cursor].2)
+                        if (start_time > &diffs_slice[d_cursor].2)
                         ||((start_time == &diffs_slice[d_cursor].2)&&
-                            ((is_forward && ((key < src)||(key == src && proposal < &dst )))
-                                ||(!is_forward && ((key < dst)||(key == dst && proposal < &src ))))) {
+                            ((is_forward && ((key < src)||(key == src && proposal < &dst)))
+                                ||(!is_forward && ((proposal < &src)||(proposal == &src && key < dst))))) {
                             *count += diffs_slice[d_cursor].3;
                         }
                         d_cursor += 1;
@@ -823,10 +779,10 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                 let dst = data[index].0.get_dst();
 
                 while diffs_slice.get(d_cursor).map(|x| &x.1) == Some(proposal) {
-                    if (start_time < &diffs_slice[d_cursor].2)
+                    if (start_time > &diffs_slice[d_cursor].2)
                         ||((start_time == &diffs_slice[d_cursor].2)&&
-                        ((is_forward && ((key < src)||(key == src && proposal < &dst )))
-                            ||(!is_forward && ((key < dst)||(key == dst && proposal < &src ))))) {
+                        ((is_forward && ((key < src)||(key == src && proposal < &dst)))
+                            ||(!is_forward && ((proposal < &src)||(proposal == &src && key < dst))))) {
                         *count += diffs_slice[d_cursor].3;
                     }
                     d_cursor += 1;
