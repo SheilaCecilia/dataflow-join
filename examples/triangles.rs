@@ -63,7 +63,7 @@ fn main () {
 
             // accumulate all changes together
             let cliques = dK3dC.concat(&dK3dB).concat(&dK3dA);
-
+//181.354491038s	total triangles at this process: 888141683
             // if the third argument is "inspect", report triangle counts.
             if inspect {
                 cliques.exchange(|x| (x.0).0 as u64)
@@ -110,7 +110,9 @@ fn main () {
             // introduce the node if it is this worker's responsibility
             if node % peers == index {
                 for &edge in &edges[node / peers] {
-                    input.send(((node as u32, edge), 1));
+                    if node as u32 != edge{
+                        input.send(((node as u32, edge), 1));
+                    }
                 }
             }
 
