@@ -29,6 +29,8 @@ extern crate timely;
 pub mod timely_rule;
 pub mod wings_rule;
 
+pub mod wings_plan;
+
 pub trait Indexable<Val>{
     fn index(&self, index: usize) -> Val;
     fn get_src(&self) -> Val;
