@@ -29,6 +29,9 @@ fn main () {
         let index = root.index();
         let peers = root.peers();
 
+        let plan_filename = std::env::args().nth(3).unwrap();
+        let plan = plan::read_plan(&plan_filename);
+
         // handles to input and probe, but also both indices so we can compact them.
         let (mut input, probe, handles) = root.dataflow::<u32,_,_>(|builder| {
 
@@ -38,12 +41,6 @@ fn main () {
             // Our query is K3 = A(x,y) B(x,z) C(y,z): triangles..
 
             let (graph_index, handles) = GraphStreamIndex::from(Vec::new().to_stream(builder), dG, |k| k as u64, |k| k as u64);
-
-            //elapsed: 729.044512217s	total triangles at this process: 888141683
-            let plan = plan::get_test_extend_plan();
-
-            //elapsed: 623.537187251s	total triangles at this process: 888141683
-            //let plan = plan::get_test_intersect_plan();
 
             let mut probe = ProbeHandle::new();
 
@@ -77,6 +74,9 @@ fn main () {
 
         // start the experiment!
         let start = ::std::time::Instant::now();
+        let mut batch_start = ::std::time::Instant::now();
+        let mut batch_mid: std::time::Instant;
+        let mut batch_end: std::time::Instant;
         for node in 0 .. nodes {
 
             // introduce the node if it is this worker's responsibility
@@ -92,10 +92,22 @@ fn main () {
             if node % batch == (batch - 1) {
                 let prev = input.time().clone();
                 input.advance_to(prev.inner + 1);
-                root.step_while(|| probe.less_than(input.time()));
 
+                root.step_while(|| handles.forward.less_than(input.time()));
+                root.step_while(|| handles.reverse.less_than(input.time()));
+                batch_mid = ::std::time::Instant::now();
+
+                root.step_while(|| probe.less_than(input.time()));
+                batch_end = ::std::time::Instant::now();
+
+                println!("After io: {:?}", batch_mid.duration_since(batch_start));
+                println!("After batch: {:?}", batch_end.duration_since(batch_start));
+
+                batch_start = ::std::time::Instant::now();
                 // merge all of the indices we maintain.
                 handles.merge_to(&prev);
+
+
             }
         }
 

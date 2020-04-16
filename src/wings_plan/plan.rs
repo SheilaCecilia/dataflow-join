@@ -94,7 +94,7 @@ impl Plan{
                 output.exchange(|x| (x.0).index(0) as u64)
                     // .inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
                     .count()
-                    .inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
+                    //.inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
                     .inspect_batch(move |_,x| {
                         if let Ok(mut bound) = counter1.lock() {
                             *bound += x[0];
@@ -179,7 +179,7 @@ pub fn read_plan(filename:&str) -> Plan{
         let num_operations: usize = elts[2].parse().unwrap();
 
         let mut operations = vec![];
-        
+
         for _j in 0 .. num_operations {
             line = String::new();
             reader.read_line(&mut line).unwrap();
