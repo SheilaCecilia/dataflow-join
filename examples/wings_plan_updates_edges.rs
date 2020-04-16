@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use alg3_dynamic::wings_plan::*;
 
+use timely::communication::{Configuration};
 use timely::dataflow::{ProbeHandle};
 use timely::dataflow::operators::*;
 
@@ -33,7 +34,16 @@ fn main () {
         let index = root.index() as u32;
         let peers = root.peers() as u32;
 
-        let plan_filename = std::env::args().nth(4).unwrap();
+        let configuration = Configuration::from_args(std::env::args()).unwrap();
+        let num_threads = match configuration {
+            Configuration::Thread => 1,
+            Configuration::Process(threads) => threads,
+            Configuration::Cluster(threads, _, _, _, _) => threads,
+            //Configuration::Cluster(threads, process, addresses, report, log_fn) => threads,
+        };
+        let local_index = index % num_threads as u32;
+
+        let plan_filename = std::env::args().nth(5).unwrap();
         let plan = plan::read_plan(&plan_filename);
 
         // handles to input and probe, but also both indices so we can compact them.
@@ -55,47 +65,47 @@ fn main () {
 
         // number of nodes introduced at a time
         let batch: usize = std::env::args().nth(2).unwrap().parse().unwrap();
-        // load percentage out of 100
-        let baseSize: usize = std::env::args().nth(3).unwrap().parse().unwrap();
-        let limit = (baseSize /100 / peers as usize) as usize ;
+        let num_batches: usize = std::env::args().nth(3).unwrap().parse().unwrap();
+        let baseSize: usize = std::env::args().nth(4).unwrap().parse().unwrap();
+        let limit = (baseSize / peers as usize) as usize ;
 
-        // load fragment of input graph into memory to avoid io while running.
-        let filename = std::env::args().nth(1).unwrap();
-        let path = Path::new(&filename);
-        let display = path.display();
-
-        // Open the path in read-only mode, returns `io::Result<File>`
-        let file = match File::open(&path) {
-            // The `description` method of `io::Error` returns a string that describes the error
-            Err(why) => {
-                panic!("EXCEPTION: couldn't open {}: {}",
-                       display,
-                       Error::description(&why))
-            }
-            Ok(file) => file,
-        };
-
-        let mut reader = BufReader::new(file);
-
+        let mut reader: BufReader<File>;
         let mut edges = Vec::new();
 
-        let mut line:String;
-        let mut num_edge = 0;
+        if local_index == 0 {
+            let graph_filename = std::env::args().nth(1).unwrap();
+            let path = Path::new(&graph_filename);
+            let display = path.display();
 
-        while num_edge < limit {
-            line = String::new();
-            reader.read_line(&mut line).unwrap();
-            if !line.starts_with('#') && line.len() > 0 {
-                let elts: Vec<&str> = line[..].split_whitespace().collect();
-                let src: u32 = elts[0].parse().ok().expect("malformed src");
-                let dst: u32 = elts[1].parse().ok().expect("malformed dst");
-                if src % peers == index{
-                    edges.push((src, dst));
-                    num_edge += 1;
+            // Open the path in read-only mode, returns `io::Result<File>`
+            let file = match File::open(&path) {
+                // The `description` method of `io::Error` returns a string that describes the error
+                Err(why) => {
+                    panic!("EXCEPTION: couldn't open {}: {}",
+                           display,
+                           Error::description(&why))
+                }
+                Ok(file) => file,
+            };
+
+            reader = BufReader::new(file);
+
+            let mut num_edges = 0;
+
+            while num_edges < limit {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if !line.starts_with('#') && line.len() > 0 {
+                    let elts: Vec<&str> = line[..].split_whitespace().collect();
+                    let src: u32 = elts[0].parse().ok().expect("malformed src");
+                    let dst: u32 = elts[1].parse().ok().expect("malformed dst");
+                    if src != dst{
+                        edges.push((src, dst));
+                        num_edges += 1;
+                    }
                 }
             }
         }
-
 
         // synchronize with other workers.
         let prevG = inputG.time().clone();
@@ -106,16 +116,17 @@ fn main () {
         // start the experiment!
         let start = ::std::time::Instant::now();
 
-        // load graph to data flow
-        inputG.send_batch(&mut edges);
-        drop(edges);
+        if local_index == 0{
+            // load graph to data flow
+            inputG.send_batch(&mut edges);
+        }
 
         let prevG = inputG.time().clone();
         inputG.advance_to(prevG.inner + 1);
         inputQ.advance_to(prevG.inner + 1);
         root.step_while(|| probe.less_than(inputG.time()));
 
-        if inspect {
+        if local_index == 0 && inspect {
             println!("{:?}\t[worker {}]\tdata loaded", start.elapsed(), index);
         }
 
@@ -132,51 +143,41 @@ fn main () {
         inputQ.advance_to(prevG.inner + 1);
         root.step_while(|| probe.less_than(inputG.time()));
 
-        let mut counter = 0 as usize;
-
-        let mut edgesQ = Vec::new();
+        let mut batch_index = 0 as usize;
         let mut batch_start = ::std::time::Instant::now();
         let mut batch_mid: std::time::Instant;
         let mut batch_end: std::time::Instant;
 
-        for line in reader.lines() {
-            let good_line = line.ok().expect("EXCEPTION: read error");
-            if !good_line.starts_with('#') && good_line.len() > 0 {
-                let elts: Vec<&str> = good_line[..].split_whitespace().collect();
-                let src: u32 = elts[0].parse().ok().expect("malformed src");
-                let dst: u32 = elts[1].parse().ok().expect("malformed dst");
-                if src % peers == index{
-                    edgesQ.push(((src, dst), 1));
-                    counter += 1;
-
-                    // advance the graph stream (only useful in the first time)
-                    // should I check if counter == 1 before we do this step !
-                    let prevG = inputG.time().clone();
-                    inputG.advance_to(prevG.inner + 1);
-
-                    if counter % batch == (batch - 1) {
-                        inputQ.send_batch(&mut edgesQ);
-
-                        let prev = inputQ.time().clone();
-                        inputQ.advance_to(prev.inner + 1);
-
-                        root.step_while(|| forward_probe.less_than(inputQ.time()) ||reverse_probe.less_than(inputQ.time()));
-                        batch_mid = ::std::time::Instant::now();
-
-                        root.step_while(|| probe.less_than(inputQ.time()));
-
-                        batch_end = ::std::time::Instant::now();
-
-                        println!("Batch {} load time: {:?}", counter/batch, batch_mid.duration_since(batch_start));
-                        println!("Batch {} pm time: {:?}", counter/batch, batch_end.duration_since(batch_start));
-
-                        batch_start = ::std::time::Instant::now();
-                        // merge all of the indices we maintain.
-                        handles.merge_to(&prev);
-
-                    }
-                }
+        while batch_index < num_batches {
+            let mut edgesQ = Vec::new();
+            if local_index == 0 {
+                edgesQ = read_batch_edges(&mut reader, batch);
             }
+
+            let prevG = inputG.time().clone();
+            inputG.advance_to(prevG.inner + 1);
+
+            if local_index == 0 {
+                inputQ.send_batch(&mut edgesQ);
+            }
+
+            let prev = inputQ.time().clone();
+            inputQ.advance_to(prev.inner + 1);
+
+            root.step_while(|| forward_probe.less_than(inputQ.time()) ||reverse_probe.less_than(inputQ.time()));
+            batch_mid = ::std::time::Instant::now();
+
+            root.step_while(|| probe.less_than(inputQ.time()));
+
+            batch_end = ::std::time::Instant::now();
+
+            println!("Batch {} load time: {:?}", batch_index, batch_mid.duration_since(batch_start));
+            println!("Batch {} pm time: {:?}", batch_index, batch_end.duration_since(batch_start));
+
+            batch_start = ::std::time::Instant::now();
+            // merge all of the indices we maintain.
+            handles.merge_to(&prev);
+            batch_index += 1;
         }
 
         inputG.close();
@@ -198,3 +199,26 @@ fn main () {
         println!("elapsed: {:?}\ttotal triangles at this process: {:?}", start.elapsed(), total);
     }
 }
+
+fn read_batch_edges(reader: &mut BufReader<File>, batch: usize) -> Vec<((u32, u32), i32)>{
+    let mut batch_edges = Vec::new();
+
+    let mut num_edges = 0;
+
+    while num_edges < batch {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        if !line.starts_with('#') && line.len() > 0 {
+            let elts: Vec<&str> = line[..].split_whitespace().collect();
+            let src: u32 = elts[0].parse().ok().expect("malformed src");
+            let dst: u32 = elts[1].parse().ok().expect("malformed dst");
+            if src != dst {
+                batch_edges.push(((src, dst),1));
+                num_edges += 1;
+            }
+        }
+    }
+
+    batch_edges
+}
+
