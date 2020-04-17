@@ -1,8 +1,8 @@
 pub mod plan;
 pub mod graph_stream;
+pub mod dir_reader;
 
 use timely::dataflow::*;
-//use timely::dataflow::operators::*;
 
 use timely::ExchangeData;
 use timely::Data;
@@ -12,6 +12,7 @@ pub use super::Indexable;
 pub use self::graph_stream::GraphStreamIndex;
 
 pub use self::plan::{Plan};
+pub use self::dir_reader::DirReader;
 pub use super::wings_rule::{Index, IndexStream, advance, StreamPrefixExtender, StreamPrefixIntersector, Intersection, GenericJoin, IntersectOnly};
 
 pub type Node = u32;
