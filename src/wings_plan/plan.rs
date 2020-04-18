@@ -43,6 +43,8 @@ pub struct PlanEdge{
     src: Rc<PlanNode>,
     dst: Rc<PlanNode>,
     operations: Vec<PlanOperation>,
+    extensions: Vec<PlanOperation>,
+    intersections: Vec<PlanOperation>,
 }
 
 #[derive(Debug, Default)]
@@ -76,23 +78,35 @@ impl Plan{
             let counter1 = counter.clone();
             let counter2 = counter.clone();
 
-            let output = if root.subgraph_num_vertices < child.subgraph_num_vertices{
-                let attributes = self.edges[index].get_extend_attributes();
-                stream.extend_attributes(graph, &attributes)
+            let plan_edge = &self.edges[index];
+            let intersect_attributes = plan_edge.get_intersect_attributes();
+            let extend_attributes = plan_edge.get_extend_attributes();
+
+            let output = if plan_edge.extensions.is_empty(){
+                stream.intersect_attributes(graph, &intersect_attributes)
+            } else if !plan_edge.intersections.is_empty(){
+                stream.intersect_attributes(graph, &intersect_attributes)
+                    .extend_attributes(graph, &extend_attributes)
                     .flat_map(|(p, es, w)|
                         es.into_iter().map(move |e|  {
                             let mut clone = p.clone();
                             clone.push(e);
                             (clone, w)
                         }))
-            }else{
-                let attributes = self.edges[index].get_intersect_attributes();
-                stream.intersect_attributes(graph, &attributes)
+            } else {
+                stream.extend_attributes(graph, &extend_attributes)
+                    .flat_map(|(p, es, w)|
+                        es.into_iter().map(move |e|  {
+                            let mut clone = p.clone();
+                            clone.push(e);
+                            (clone, w)
+                        }))
             };
+            
             if child.is_query{
                 output.probe_with(probe);
                 output.exchange(|x| (x.0).index(0) as u64)
-                    // .inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
+                    //.inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
                     .count()
                     //.inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
                     .inspect_batch(move |_,x| {
@@ -104,13 +118,31 @@ impl Plan{
             self.execute_node(child, &output, graph, probe, counter2);
         }
     }
+
+    fn initialize(&mut self){
+        for edge in &mut self.edges {
+            edge.initialize();
+        }
+    }
 }
 
 impl PlanEdge{
+    fn initialize(&mut self){
+        for operation in &self.operations{
+            if operation.dst_key == self.src.subgraph_num_vertices{
+                self.extensions.push(PlanOperation{src_key: operation.src_key, dst_key: operation.dst_key, is_forward: operation.is_forward });
+            } else {
+                self.intersections.push(PlanOperation{src_key: operation.src_key, dst_key: operation.dst_key, is_forward: operation.is_forward });
+            }
+        }
+    }
+
+
+
     fn get_extend_attributes(&self) -> Vec<(usize, bool)>{
         let mut constraints = vec![];
 
-        for &ref operation in &self.operations{
+        for &ref operation in &self.extensions{
             constraints.push((operation.src_key, operation.is_forward));
         }
 
@@ -120,7 +152,7 @@ impl PlanEdge{
     fn get_intersect_attributes(&self) -> Vec<(usize, usize)>{
         let mut constraints = vec![];
 
-        for &ref operation in &self.operations{
+        for &ref operation in &self.intersections{
             if operation.is_forward{
                 constraints.push((operation.src_key, operation.dst_key));
             }else{
@@ -194,146 +226,13 @@ pub fn read_plan(filename:&str) -> Plan{
         plan.edges.push(PlanEdge{
             src: plan.nodes[src].clone(),
             dst: plan.nodes[dst].clone(),
+            extensions: Vec::new(),
+            intersections: Vec::new(),
             operations,
         })
     }
 
-    plan
-}
-
-pub fn get_test_extend_plan() -> Plan{
-    let mut plan:Plan = Default::default();
-
-    plan.root_node_id = 0;
-
-    plan.nodes = vec![
-        Rc::new(PlanNode{
-            edge_start_idx: 0,
-            num_edges: 3,
-            subgraph_num_vertices: 2,
-            is_query: false,
-        }),
-        Rc::new(PlanNode{
-            edge_start_idx: 3,
-            num_edges: 0,
-            subgraph_num_vertices: 3,
-            is_query: true,
-        }),
-        Rc::new(PlanNode{
-            edge_start_idx: 3,
-            num_edges: 0,
-            subgraph_num_vertices: 3,
-            is_query: true,
-        }),
-        Rc::new(PlanNode{
-            edge_start_idx:3,
-            num_edges: 0,
-            subgraph_num_vertices: 3,
-            is_query: true,
-        })];
-
-    plan.edges = vec![
-        PlanEdge{
-            src: plan.nodes[0].clone(),
-            dst: plan.nodes[1].clone(),
-            operations: vec![
-                PlanOperation{src_key: 0, dst_key: 2, is_forward: true},
-                PlanOperation{src_key: 1, dst_key: 2, is_forward: true}
-            ]
-        },
-        PlanEdge{
-            src: plan.nodes[0].clone(),
-            dst: plan.nodes[2].clone(),
-            operations: vec![
-                PlanOperation{src_key: 0, dst_key: 2, is_forward: true},
-                PlanOperation{src_key: 1, dst_key: 2, is_forward: false}
-            ]
-        },
-        PlanEdge{
-            src: plan.nodes[0].clone(),
-            dst: plan.nodes[3].clone(),
-            operations: vec![
-                PlanOperation{src_key: 0, dst_key: 2, is_forward: false},
-                PlanOperation{src_key: 1, dst_key: 2, is_forward: false}
-            ]
-        }];
-
-    plan
-}
-
-pub fn get_test_intersect_plan() -> Plan{
-    let mut plan = Plan{edges: vec![], nodes: vec![], root_node_id: 0};
-
-    plan.root_node_id = 0;
-
-    plan.nodes = vec![
-        Rc::new(PlanNode{
-            edge_start_idx: 0,
-            num_edges: 3,
-            subgraph_num_vertices: 2,
-            is_query: false,
-        }),
-        Rc::new(PlanNode{
-            edge_start_idx: 3,
-            num_edges: 1,
-            subgraph_num_vertices: 3,
-            is_query: false,
-        }),
-        Rc::new(PlanNode{
-            edge_start_idx: 4,
-            num_edges: 0,
-            subgraph_num_vertices: 3,
-            is_query: true,
-        }),
-        Rc::new(PlanNode{
-            edge_start_idx:4,
-            num_edges: 0,
-            subgraph_num_vertices: 3,
-            is_query: true,
-        }),
-        Rc::new(PlanNode{
-            edge_start_idx:4,
-            num_edges: 0,
-            subgraph_num_vertices: 3,
-            is_query: true,
-        })
-    ];
-
-    plan.edges = vec![
-        PlanEdge{
-            src: plan.nodes[0].clone(),
-            dst: plan.nodes[1].clone(),
-            operations: vec![
-                //PlanOperation{src_key: 0, dst_key: 2, is_forward: true},
-                PlanOperation{src_key: 1, dst_key: 2, is_forward: true}
-            ]
-        },
-        PlanEdge{
-            src: plan.nodes[0].clone(),
-            dst: plan.nodes[2].clone(),
-            operations: vec![
-                PlanOperation{src_key: 0, dst_key: 2, is_forward: true},
-                PlanOperation{src_key: 1, dst_key: 2, is_forward: false}
-            ]
-        },
-        PlanEdge{
-            src: plan.nodes[0].clone(),
-            dst: plan.nodes[3].clone(),
-            operations: vec![
-                PlanOperation{src_key: 0, dst_key: 2, is_forward: false},
-                PlanOperation{src_key: 1, dst_key: 2, is_forward: false}
-            ]
-        },
-        PlanEdge{
-            src: plan.nodes[1].clone(),
-            dst: plan.nodes[4].clone(),
-            operations: vec![
-                PlanOperation{src_key: 0, dst_key: 2, is_forward: false},
-                //PlanOperation{src_key: 1, dst_key: 2, is_forward: false}
-            ]
-        }
-
-    ];
+    plan.initialize();
 
     plan
 }
