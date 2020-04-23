@@ -55,6 +55,7 @@ fn main () {
 //                .flat_map(|(p,es,w)| es.into_iter().map(move |e| (vec![p[0],p[1],e], w)));
 //
 //            let dK3dA = dABdA.intersect_only(vec![Box::new(forward.intersect_using(|x: &Vec<u32>| x[1],|x: &Vec<u32>| x[2]))]);
+            //elapsed: 228.025765152s	total triangles at this process: 187551052
             let dK3dA = dG_init.extend(vec![Box::new(forward.extend_using(|x: &Vec<u32>| x[0])),
                                             Box::new(forward.extend_using(|x: &Vec<u32>| x[1]))])
                 .flat_map(|(p,es,w)| es.into_iter().map(move |e| (vec![p[0],p[1],e], w)));
@@ -70,8 +71,8 @@ fn main () {
                 .flat_map(|(p,es,w)| es.into_iter().map(move |e| (vec![e,p[0],p[1]], w)));
 
             // accumulate all changes together
-            let cliques = dK3dC.concat(&dK3dB).concat(&dK3dA);
-            //let cliques = dK3dC;
+            //let cliques = dK3dC.concat(&dK3dB).concat(&dK3dA);
+            let cliques = dK3dA;
             //elapsed: 645.917984266s	total triangles at this process: 888141683
             // if the third argument is "inspect", report triangle counts.
             if inspect {

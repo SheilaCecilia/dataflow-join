@@ -185,16 +185,16 @@ pub fn read_plan(filename:&str) -> Plan{
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
 
-    line = String::new();
+    let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     plan.root_node_id = line.trim().parse().unwrap();
 
-    line = String::new();
+    let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     let nodes: usize = line.trim().parse().unwrap();
 
     for _i in 0 .. nodes {
-        line = String::new();
+        let mut line = String::new();
         reader.read_line(&mut line).unwrap();
         let elts: Vec<&str> = line[..].split_whitespace().collect();
         let edge_start_idx:usize = elts[0].parse().unwrap();
@@ -205,12 +205,12 @@ pub fn read_plan(filename:&str) -> Plan{
         plan.nodes.push(Rc::new(PlanNode{ edge_start_idx, num_edges, subgraph_num_vertices, is_query }));
     }
 
-    line = String::new();
+    let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     let edges: usize = line.trim().parse().unwrap();
 
     for _i in 0 .. edges {
-        line = String::new();
+        let mut line = String::new();
         reader.read_line(&mut line).unwrap();
         let elts: Vec<&str> = line[..].split_whitespace().collect();
         let src: usize = elts[0].parse().unwrap();
@@ -220,7 +220,7 @@ pub fn read_plan(filename:&str) -> Plan{
         let mut operations = vec![];
 
         for _j in 0 .. num_operations {
-            line = String::new();
+            let mut line = String::new();
             reader.read_line(&mut line).unwrap();
             let elts: Vec<&str> = line[..].split_whitespace().collect();
             let src_key: usize = elts[0].parse().unwrap();

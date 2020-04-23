@@ -4,7 +4,7 @@ extern crate alg3_dynamic;
 
 use std::sync::{Arc, Mutex};
 
-use alg3_dynamic::*;
+use alg3_dynamic::timely_rule::*;
 
 use timely::dataflow::operators::*;
 
@@ -41,6 +41,7 @@ fn main () {
             let (graph, dG) = builder.new_input::<(u32, u32)>();
             let (query, dQ) = builder.new_input::<((u32, u32), i32)>();
 
+            let dQ_init = dQ.map(|((src,dst),wgt)| (vec![src,dst],wgt));
             // Our query is K3 = A(x,y) B(x,z) C(y,z): triangles.
             //
             // The dataflow determines how to update this query with respect to changes in each
@@ -55,29 +56,43 @@ fn main () {
             let reverse = IndexStream::from(|k| k as u64, &dG.map(|(src,dst)| (dst,src)),
                                                            &dQ.map(|((src,dst),wgt)| ((dst,src),wgt)));
 
-            // dA(x,y) extends to z first through C(x,z) then B(y,z), both using forward indices.
-            let dK3dA = dQ//.filter(|_| false)
-                          .extend(vec![Box::new(forward.extend_using(|&(x,_)| x, <_ as PartialOrd>::lt)),
-                                       Box::new(forward.extend_using(|&(_,y)| y, <_ as PartialOrd>::lt))])
-                          .flat_map(|(p,es,w)| es.into_iter().map(move |e| ((p.0,p.1,e), w)));
+            let dK3dA = dQ_init.extend(vec![Box::new(forward.extend_using(|x: &Vec<u32>| x[0], <_ as PartialOrd>::lt)),
+                                            Box::new(forward.extend_using(|x: &Vec<u32>| x[1], <_ as PartialOrd>::lt))])
+                .flat_map(|(p,es,w)| es.into_iter().map(move |e| (vec![p[0],p[1],e], w)));
 
             // dB(x,z) extends to y first through A(x,y) then C(y,z), using forward and reverse indices, respectively.
-            let dK3dB = dQ//.filter(|_| false)
-                          .extend(vec![Box::new(forward.extend_using(|&(x,_)| x, <_ as PartialOrd>::le)),
-                                       Box::new(reverse.extend_using(|&(_,z)| z, <_ as PartialOrd>::lt))])
-                          .flat_map(|(p,es,w)| es.into_iter().map(move |e| ((p.0,e,p.1), w)));
+            let dK3dB = dQ_init.extend(vec![Box::new(forward.extend_using(|x: &Vec<u32>| x[0], <_ as PartialOrd>::le)),
+                                            Box::new(reverse.extend_using(|x: &Vec<u32>| x[1], <_ as PartialOrd>::lt))])
+                .flat_map(|(p,es,w)| es.into_iter().map(move |e| (vec![p[0],e,p[1]], w)));
 
             // dC(y,z) extends to x first through A(x,y) then B(x,z), both using reverse indices.
-            let dK3dC = dQ.extend(vec![Box::new(reverse.extend_using(|&(y,_)| y, <_ as PartialOrd>::le)),
-                                       Box::new(reverse.extend_using(|&(_,z)| z, <_ as PartialOrd>::le))])
-                          .flat_map(|(p,es,w)| es.into_iter().map(move |e| ((e,p.0,p.1), w)));
+            let dK3dC = dQ_init.extend(vec![Box::new(reverse.extend_using(|x: &Vec<u32>| x[0], <_ as PartialOrd>::le)),
+                                            Box::new(reverse.extend_using(|x: &Vec<u32>| x[1], <_ as PartialOrd>::le))])
+                .flat_map(|(p,es,w)| es.into_iter().map(move |e| (vec![e,p[0],p[1]], w)));
+
+            // dA(x,y) extends to z first through C(x,z) then B(y,z), both using forward indices.
+//            let dK3dA = dQ//.filter(|_| false)
+//                          .extend(vec![Box::new(forward.extend_using(|&(x,_)| x, <_ as PartialOrd>::lt)),
+//                                       Box::new(forward.extend_using(|&(_,y)| y, <_ as PartialOrd>::lt))])
+//                          .flat_map(|(p,es,w)| es.into_iter().map(move |e| ((p.0,p.1,e), w)));
+//
+//            // dB(x,z) extends to y first through A(x,y) then C(y,z), using forward and reverse indices, respectively.
+//            let dK3dB = dQ//.filter(|_| false)
+//                          .extend(vec![Box::new(forward.extend_using(|&(x,_)| x, <_ as PartialOrd>::le)),
+//                                       Box::new(reverse.extend_using(|&(_,z)| z, <_ as PartialOrd>::lt))])
+//                          .flat_map(|(p,es,w)| es.into_iter().map(move |e| ((p.0,e,p.1), w)));
+//
+//            // dC(y,z) extends to x first through A(x,y) then B(x,z), both using reverse indices.
+//            let dK3dC = dQ.extend(vec![Box::new(reverse.extend_using(|&(y,_)| y, <_ as PartialOrd>::le)),
+//                                       Box::new(reverse.extend_using(|&(_,z)| z, <_ as PartialOrd>::le))])
+//                          .flat_map(|(p,es,w)| es.into_iter().map(move |e| ((e,p.0,p.1), w)));
 
             // accumulate all changes together
             let cliques = dK3dC.concat(&dK3dB).concat(&dK3dA);
 
             // if the third argument is "inspect", report triangle counts.
             if inspect {
-                cliques.exchange(|x| (x.0).0 as u64)
+                cliques.exchange(|x| (x.0)[0] as u64)
                        // .inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
                        .count()
                        // .inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
@@ -114,6 +129,7 @@ fn main () {
 
 	let mut edges = Vec::new();
 	let mut edgesQ = Vec::new();
+
 	for e in 0 .. input_graph.len() {
 		if e <= limit {
 		   edges.push(input_graph[e]);

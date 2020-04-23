@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use alg3_dynamic::wings_plan::*;
 
 use timely::communication::{Configuration};
-use timely::dataflow::{ProbeHandle};
+use timely::dataflow::{InputHandle, ProbeHandle};
 use timely::dataflow::operators::*;
 
 #[allow(non_snake_case)]
@@ -15,14 +15,16 @@ fn main () {
     //datasetDirectory  batchSize  numBatch  baseSize  planFile
     let start = ::std::time::Instant::now();
 
-    let send = Arc::new(Mutex::new(0 as u64));
+    let send = Arc::new(Mutex::new(0));
     let send2 = send.clone();
+    let send3 = send.clone();
 
     let inspect = ::std::env::args().find(|x| x == "inspect").is_some();
 
     timely::execute_from_args(std::env::args(), move |root| {
 
         let send = send.clone();
+        let mut input = InputHandle::new();
 
         // used to partition graph loading
         let index = root.index() as u32;
@@ -52,6 +54,11 @@ fn main () {
             let mut probe = ProbeHandle::new();
 
             plan.track_motif(&graph_index, &mut probe, send);
+
+            builder.input_from(&mut input)
+                .exchange(|x| 0)
+                .count();
+
 
             (graph, query, graph_index.forward.handle , graph_index.reverse.handle, probe, handles)
         });
@@ -97,7 +104,7 @@ fn main () {
         inputQ.advance_to(prevG.inner + 1);
         root.step_while(|| probe.less_than(inputG.time()));
 
-        if local_index == 0 && inspect {
+        if inspect {
             println!("{:?}\t[worker {}]\tdata loaded", start.elapsed(), index);
         }
 
@@ -151,11 +158,29 @@ fn main () {
             handles.merge_to(&prev);
             batch_end = ::std::time::Instant::now();
 
+//            if local_index == 0{
+//                println!("Batch {} read edge time: {:?}", batch_index, batch_start.duration_since(read_start));
+//                println!("Batch {} update index time: {:?}", batch_index, batch_mid.duration_since(batch_start));
+//                println!("Batch {} pattern matching time: {:?}", batch_index, batch_end.duration_since(batch_mid));
+//            }
+
             if local_index == 0{
-                let test = batch_start.duration_since(read_start);
-                println!("Batch {} read edge time: {:?}", batch_index, batch_start.duration_since(read_start));
-                println!("Batch {} update index time: {:?}", batch_index, batch_mid.duration_since(batch_start));
-                println!("Batch {} pattern matching time: {:?}", batch_index, batch_end.duration_since(batch_mid));
+                read_edge_time.push(batch_start.duration_since(read_start));
+                update_index_time.push(batch_mid.duration_since(batch_start));
+                pattern_matching_time.push(batch_end.duration_since(batch_mid));
+
+                if (batch_index + 1) % 100 == 0 {
+                    let idx_start = batch_index;
+                    let idx_end = batch_index + 1;
+                    for idx in idx_start..idx_end {
+                        println!("Batch {} read edge time: {:?}", idx, read_edge_time[idx - idx_start]);
+                        println!("Batch {} update index time: {:?}", idx, update_index_time[idx - idx_start]);
+                        println!("Batch {} pattern matching time: {:?}", idx, pattern_matching_time[idx - idx_start]);
+                    }
+                    read_edge_time.clear();
+                    update_index_time.clear();
+                    pattern_matching_time.clear();
+                }
             }
 
             batch_index += 1;
@@ -171,13 +196,13 @@ fn main () {
 
     }).unwrap();
 
-    let total = if let Ok(lock) = send2.lock() {
+    let total = if let Ok(lock) = send3.lock() {
         *lock
     }
     else { 0 };
 
     if inspect {
-        println!("elapsed: {:?}\ttotal triangles at this process: {:?}", start.elapsed(), total);
+        println!("elapsed: {:?}\ttotal matchings at this process: {:?}", start.elapsed(), total);
     }
 }
 

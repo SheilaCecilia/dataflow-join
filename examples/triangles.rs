@@ -131,6 +131,8 @@ fn main () {
         input.close();
         while root.step() { }
 
+
+
         if inspect { 
             println!("worker {} elapsed: {:?}", index, start.elapsed()); 
         }
@@ -144,5 +146,9 @@ fn main () {
 
     if inspect { 
         println!("elapsed: {:?}\ttotal triangles at this process: {:?}", start.elapsed(), total); 
+    }
+
+    if index == 0 {
+
     }
 }

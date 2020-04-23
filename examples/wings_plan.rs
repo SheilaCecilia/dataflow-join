@@ -33,7 +33,7 @@ fn main () {
         let plan = plan::read_plan(&plan_filename);
 
         // handles to input and probe, but also both indices so we can compact them.
-        let (mut input, probe, handles) = root.dataflow::<u32,_,_>(|builder| {
+        let (mut input, forward_probe, reverse_probe, probe, handles) = root.dataflow::<u32,_,_>(|builder| {
 
             // Please see triangles for more information on "graph" and dG.
             let (graph, dG) = builder.new_input::<((u32, u32), i32)>();
@@ -46,7 +46,7 @@ fn main () {
 
             plan.track_motif(&graph_index, &mut probe, send);
 
-            (graph, probe, handles)
+            (graph, graph_index.forward.handle , graph_index.reverse.handle, probe, handles)
         });
 
         // load fragment of input graph into memory to avoid io while running.
@@ -93,8 +93,7 @@ fn main () {
                 let prev = input.time().clone();
                 input.advance_to(prev.inner + 1);
 
-                root.step_while(|| handles.forward.less_than(input.time()));
-                root.step_while(|| handles.reverse.less_than(input.time()));
+                root.step_while(|| forward_probe.less_than(inputQ.time()) ||reverse_probe.less_than(inputQ.time()));
                 batch_mid = ::std::time::Instant::now();
 
                 root.step_while(|| probe.less_than(input.time()));
