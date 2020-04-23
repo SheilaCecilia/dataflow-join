@@ -153,9 +153,9 @@ fn main () {
         let mut batch_mid: std::time::Instant;
         let mut batch_end: std::time::Instant;
 
-        let mut read_edge_time =  Vec::new();
-        let mut update_index_time = Vec::new();
-        let mut pattern_matching_time = Vec::new();
+//        let mut read_edge_time =  Vec::new();
+//        let mut update_index_time = Vec::new();
+//        let mut pattern_matching_time = Vec::new();
 
         while batch_index < num_batches {
             let mut edgesQ = Vec::new();
@@ -185,23 +185,29 @@ fn main () {
             batch_end = ::std::time::Instant::now();
 
             if local_index == 0{
-                read_edge_time.push(batch_start.duration_since(read_start));
-                update_index_time.push(batch_mid.duration_since(batch_start));
-                pattern_matching_time.push(batch_end.duration_since(batch_mid));
-
-                if (batch_index + 1) % 100 == 0 {
-                    let idx_start = batch_index - 99;
-                    let idx_end = batch_index + 1;
-                    for idx in idx_start..idx_end {
-                        println!("Batch {} read edge time: {:?}", idx, read_edge_time[idx - idx_start]);
-                        println!("Batch {} update index time: {:?}", idx, update_index_time[idx - idx_start]);
-                        println!("Batch {} pattern matching time: {:?}", idx, pattern_matching_time[idx - idx_start]);
-                    }
-                    read_edge_time.clear();
-                    update_index_time.clear();
-                    pattern_matching_time.clear();
-                }
+                println!("Batch {} read edge time: {:?}", batch_index, batch_start.duration_since(read_start));
+                println!("Batch {} update index time: {:?}", batch_index, batch_mid.duration_since(batch_start));
+                println!("Batch {} pattern matching time: {:?}", batch_index, batch_end.duration_since(batch_mid));
             }
+
+//            if local_index == 0{
+//                read_edge_time.push(batch_start.duration_since(read_start));
+//                update_index_time.push(batch_mid.duration_since(batch_start));
+//                pattern_matching_time.push(batch_end.duration_since(batch_mid));
+//
+//                if (batch_index + 1) % 100 == 0 {
+//                    let idx_start = batch_index - 99;
+//                    let idx_end = batch_index + 1;
+//                    for idx in idx_start..idx_end {
+//                        println!("Batch {} read edge time: {:?}", idx, read_edge_time[idx - idx_start]);
+//                        println!("Batch {} update index time: {:?}", idx, update_index_time[idx - idx_start]);
+//                        println!("Batch {} pattern matching time: {:?}", idx, pattern_matching_time[idx - idx_start]);
+//                    }
+//                    read_edge_time.clear();
+//                    update_index_time.clear();
+//                    pattern_matching_time.clear();
+//                }
+//            }
 
             batch_index += 1;
         }
