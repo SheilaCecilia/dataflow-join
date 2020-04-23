@@ -55,7 +55,7 @@ pub struct Plan{
 }
 
 impl Plan{
-    pub fn track_motif<H1, H2, G: Scope>(&self, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<usize>>)
+    pub fn track_motif<H1, H2, G: Scope>(&self, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<u64>>)
         where H1: Fn(Node)->u64 + 'static,
               H2: Fn(Node)->u64 + 'static
     {
@@ -63,7 +63,7 @@ impl Plan{
         self.execute_node(root, &graph.updates, graph, probe, counter);
     }
 
-    fn execute_node<H1, H2, G: Scope, P>(&self, root: Rc<PlanNode>, stream: &Stream<G, (P, i32)>, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<usize>>)
+    fn execute_node<H1, H2, G: Scope, P>(&self, root: Rc<PlanNode>, stream: &Stream<G, (P, i32)>, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<u64>>)
         where H1: Fn(Node)->u64 + 'static,
               H2: Fn(Node)->u64 + 'static,
               P: ::std::fmt::Debug+ExchangeData+Indexable<Node>,
@@ -84,7 +84,8 @@ impl Plan{
 
             let output = if plan_edge.extensions.is_empty(){
                 stream.intersect_attributes(graph, &intersect_attributes)
-            } else if !plan_edge.intersections.is_empty(){
+            }
+            else if !plan_edge.intersections.is_empty(){
                 stream.intersect_attributes(graph, &intersect_attributes)
                     .extend_attributes(graph, &extend_attributes)
                     .flat_map(|(p, es, w)|
@@ -102,7 +103,7 @@ impl Plan{
                             (clone, w)
                         }))
             };
-            
+
             if child.is_query{
                 output.probe_with(probe);
                 output.exchange(|x| (x.0).index(0) as u64)
@@ -111,7 +112,7 @@ impl Plan{
                     //.inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
                     .inspect_batch(move |_,x| {
                         if let Ok(mut bound) = counter1.lock() {
-                            *bound += x[0];
+                            *bound += x[0] as u64;
                         }
                     });
             }
@@ -183,19 +184,25 @@ pub fn read_plan(filename:&str) -> Plan{
 
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
-    let nodes: usize = line.trim().parse().unwrap();
 
-    let mut edge_start_idx = 0;
+    line = String::new();
+    reader.read_line(&mut line).unwrap();
+    plan.root_node_id = line.trim().parse().unwrap();
+
+    line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let nodes: usize = line.trim().parse().unwrap();
 
     for _i in 0 .. nodes {
         line = String::new();
         reader.read_line(&mut line).unwrap();
         let elts: Vec<&str> = line[..].split_whitespace().collect();
-        let num_edges: usize = elts[0].parse().unwrap();
-        let subgraph_num_vertices: usize = elts[1].parse().unwrap();
-        let is_query: bool = elts[2].parse().unwrap();
+        let edge_start_idx:usize = elts[0].parse().unwrap();
+        let num_edges: usize = elts[1].parse().unwrap();
+        let subgraph_num_vertices: usize = elts[2].parse().unwrap();
+        let is_query: usize = elts[3].parse().unwrap();
+        let is_query = if is_query == 1 { true } else {false};
         plan.nodes.push(Rc::new(PlanNode{ edge_start_idx, num_edges, subgraph_num_vertices, is_query }));
-        edge_start_idx += num_edges;
     }
 
     line = String::new();
@@ -218,8 +225,8 @@ pub fn read_plan(filename:&str) -> Plan{
             let elts: Vec<&str> = line[..].split_whitespace().collect();
             let src_key: usize = elts[0].parse().unwrap();
             let dst_key: usize = elts[1].parse().unwrap();
-            let is_forward: bool = elts[2].parse().unwrap();
-
+            let is_forward: usize = elts[2].parse().unwrap();
+            let is_forward = if is_forward == 1 { true } else {false};
             operations.push(PlanOperation{src_key, dst_key, is_forward});
         }
 

@@ -1,3 +1,5 @@
+//wings_plan_updates_edge.rs
+
 extern crate timely;
 extern crate graph_map;
 extern crate alg3_dynamic;
@@ -10,9 +12,15 @@ use timely::communication::{Configuration};
 use timely::dataflow::{ProbeHandle};
 use timely::dataflow::operators::*;
 
+use std::io::BufReader;
+use std::error::Error;
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
+
 #[allow(non_snake_case)]
 fn main () {
-    //datasetDirectory  batchSize  numBatch  baseSize  planFile
+    //datasetFile  batchSize  numBatch  baseSize  planFile
     let start = ::std::time::Instant::now();
 
     let send = Arc::new(Mutex::new(0));
@@ -62,20 +70,45 @@ fn main () {
         let batch_size = batch_size / num_processes;
         let num_batches: usize = std::env::args().nth(3).unwrap().parse().unwrap();
         let base_size: usize = std::env::args().nth(4).unwrap().parse().unwrap();
-        let base_size = base_size / num_processes;
+        let limit = (base_size / num_processes) as usize;
 
-        let mut dir_reader_option: Option<DirReader> = None;
-
-       //let mut reader_option: Option<BufReader<File>> = None;
+        let mut reader_option: Option<BufReader<File>> = None;
         let mut edges = Vec::new();
 
         if local_index == 0 {
-            let graph_dirname = std::env::args().nth(1).unwrap();
-            dir_reader_option = Some(DirReader::new(&graph_dirname));
+            let graph_filename = std::env::args().nth(1).unwrap();
+            let path = Path::new(&graph_filename);
+            let display = path.display();
 
-            let reader = dir_reader_option.as_mut().unwrap();
+            // Open the path in read-only mode, returns `io::Result<File>`
+            let file = match File::open(&path) {
+                // The `description` method of `io::Error` returns a string that describes the error
+                Err(why) => {
+                    panic!("EXCEPTION: couldn't open {}: {}",
+                           display,
+                           Error::description(&why))
+                }
+                Ok(file) => file,
+            };
 
-            edges = reader.read_edges(base_size);
+            reader_option = Some(BufReader::new(file));
+            let reader = reader_option.as_mut().unwrap();
+
+            let mut num_edges = 0;
+
+            while num_edges < limit {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if !line.starts_with('#') && line.len() > 0 {
+                    let elts: Vec<&str> = line[..].split_whitespace().collect();
+                    let src: u32 = elts[0].parse().ok().expect("malformed src");
+                    let dst: u32 = elts[1].parse().ok().expect("malformed dst");
+                    if src != dst{
+                        edges.push((src, dst));
+                        num_edges += 1;
+                    }
+                }
+            }
         }
 
         // synchronize with other workers.
@@ -97,7 +130,7 @@ fn main () {
         inputQ.advance_to(prevG.inner + 1);
         root.step_while(|| probe.less_than(inputG.time()));
 
-        if local_index == 0 && inspect {
+        if inspect {
             println!("{:?}\t[worker {}]\tdata loaded", start.elapsed(), index);
         }
 
@@ -120,12 +153,15 @@ fn main () {
         let mut batch_mid: std::time::Instant;
         let mut batch_end: std::time::Instant;
 
+        let mut read_edge_time =  Vec::new();
+        let mut update_index_time = Vec::new();
+        let mut pattern_matching_time = Vec::new();
+
         while batch_index < num_batches {
             let mut edgesQ = Vec::new();
             if local_index == 0 {
                 read_start = ::std::time::Instant::now();
-                edgesQ = dir_reader_option.as_mut().unwrap().read_edges(batch_size).iter().map(|&(src, dst)| ((src, dst), 1)).collect::<Vec<_>>();
-                //edgesQ = read_batch_edges(&mut reader_option.as_mut().unwrap(), batch_size);
+                edgesQ = read_batch_edges(&mut reader_option.as_mut().unwrap(), batch_size);
                 batch_start = ::std::time::Instant::now();
             }
 
@@ -149,9 +185,22 @@ fn main () {
             batch_end = ::std::time::Instant::now();
 
             if local_index == 0{
-                println!("Batch {} read edge time: {:?}", batch_index, batch_start.duration_since(read_start));
-                println!("Batch {} update index time: {:?}", batch_index, batch_mid.duration_since(batch_start));
-                println!("Batch {} pm time: {:?}", batch_index, batch_end.duration_since(batch_mid));
+                read_edge_time.push(batch_start.duration_since(read_start));
+                update_index_time.push(batch_mid.duration_since(batch_start));
+                pattern_matching_time.push(batch_end.duration_since(batch_mid));
+
+                if (batch_index + 1) % 100 == 0 {
+                    let idx_start = batch_index - 99;
+                    let idx_end = batch_index + 1;
+                    for idx in idx_start..idx_end {
+                        println!("Batch {} read edge time: {:?}", idx, read_edge_time[idx - idx_start]);
+                        println!("Batch {} update index time: {:?}", idx, update_index_time[idx - idx_start]);
+                        println!("Batch {} pattern matching time: {:?}", idx, pattern_matching_time[idx - idx_start]);
+                    }
+                    read_edge_time.clear();
+                    update_index_time.clear();
+                    pattern_matching_time.clear();
+                }
             }
 
             batch_index += 1;
@@ -173,7 +222,29 @@ fn main () {
     else { 0 };
 
     if inspect {
-        println!("elapsed: {:?}\ttotal triangles at this process: {:?}", start.elapsed(), total);
+        println!("elapsed: {:?}\ttotal matchings at this process: {:?}", start.elapsed(), total);
     }
+}
+
+fn read_batch_edges(reader: &mut BufReader<File>, batch: usize) -> Vec<((u32, u32), i32)>{
+    let mut batch_edges = Vec::new();
+
+    let mut num_edges = 0;
+
+    while num_edges < batch {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        if !line.starts_with('#') && line.len() > 0 {
+            let elts: Vec<&str> = line[..].split_whitespace().collect();
+            let src: u32 = elts[0].parse().ok().expect("malformed src");
+            let dst: u32 = elts[1].parse().ok().expect("malformed dst");
+            if src != dst {
+                batch_edges.push(((src, dst),1));
+                num_edges += 1;
+            }
+        }
+    }
+
+    batch_edges
 }
 
