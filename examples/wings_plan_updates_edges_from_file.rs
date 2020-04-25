@@ -103,10 +103,8 @@ fn main () {
                     let elts: Vec<&str> = line[..].split_whitespace().collect();
                     let src: u32 = elts[0].parse().ok().expect("malformed src");
                     let dst: u32 = elts[1].parse().ok().expect("malformed dst");
-                    if src != dst{
-                        edges.push((src, dst));
-                        num_edges += 1;
-                    }
+                    edges.push((src, dst));
+                    num_edges += 1;
                 }
             }
         }
@@ -244,10 +242,8 @@ fn read_batch_edges(reader: &mut BufReader<File>, batch: usize) -> Vec<((u32, u3
             let elts: Vec<&str> = line[..].split_whitespace().collect();
             let src: u32 = elts[0].parse().ok().expect("malformed src");
             let dst: u32 = elts[1].parse().ok().expect("malformed dst");
-            if src != dst {
-                batch_edges.push(((src, dst),1));
-                num_edges += 1;
-            }
+            batch_edges.push(((src, dst),1));
+            num_edges += 1;
         }
     }
 

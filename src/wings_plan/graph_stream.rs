@@ -38,7 +38,7 @@ impl<G: Scope, H1: Fn(Node)->u64+'static, H2: Fn(Node)->u64+'static> GraphStream
         let forward = IndexStream::from(hash1, &initially, &updates, true);
         let reverse = IndexStream::from(hash2, &initially.map(|(src, dst)| (dst, src)),
                                         &updates.map(|((src, dst), wgt)| ((dst, src), wgt)), false);
-        let updates = updates.map(|((src, dst),wgt)|(vec![src, dst], wgt));
+        let updates = updates.filter(|((src, dst),_)| src != dst).map(|((src, dst),wgt)|(vec![src, dst], wgt));
         let index = GraphStreamIndex {
             forward: forward,
             reverse: reverse,

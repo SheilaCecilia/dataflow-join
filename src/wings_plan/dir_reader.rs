@@ -41,10 +41,8 @@ impl DirReader {
                 let elts: Vec<&str> = line[..].split_whitespace().collect();
                 let src: u32 = elts[0].parse().ok().expect("malformed src");
                 let dst: u32 = elts[1].parse().ok().expect("malformed dst");
-                if src != dst {
-                    edges.push((src, dst));
-                    edge_index += 1;
-                }
+                edges.push((src, dst));
+                edge_index += 1;
             }
         }
 
