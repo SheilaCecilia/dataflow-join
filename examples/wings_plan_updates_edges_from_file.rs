@@ -21,7 +21,7 @@ use std::path::Path;
 #[allow(non_snake_case)]
 fn main () {
     //datasetFile  batchSize  numBatch  baseSize  planFile
-    let start = ::std::time::Instant::now();
+    let start_main = ::std::time::Instant::now();
 
     let send = Arc::new(Mutex::new(0));
     let send2 = send.clone();
@@ -29,7 +29,8 @@ fn main () {
     let inspect = ::std::env::args().find(|x| x == "inspect").is_some();
 
     timely::execute_from_args(std::env::args(), move |root| {
-
+        
+        let start_dataflow = ::std::time::Instant::now();
         let send = send.clone();
 
         // used to partition graph loading
@@ -63,7 +64,10 @@ fn main () {
 
             (graph, query, graph_index.forward.handle , graph_index.reverse.handle, probe, handles)
         });
+        let end_dataflow = ::std::time::Instant::now();
+        println!("worker {} build dataflow: {:?}", index, end_dataflow.duration_since(start_dataflow));
 
+        let start_read_base = ::std::time::Instant::now();
         // number of nodes introduced at a time
         let num_processes = peers as usize / num_threads;
         let batch_size: usize = std::env::args().nth(2).unwrap().parse().unwrap();
@@ -114,6 +118,8 @@ fn main () {
         inputG.advance_to(prevG.inner + 1);
         inputQ.advance_to(prevG.inner + 1);
         root.step_while(|| probe.less_than(inputG.time()));
+        let end_read_base = ::std::time::Instant::now();
+        println!("worker {} read base graph: {:?}", index, end_read_base.duration_since(start_read_base));
 
         // start the experiment!
         let start = ::std::time::Instant::now();
@@ -226,7 +232,7 @@ fn main () {
     else { 0 };
 
     if inspect {
-        println!("elapsed: {:?}\ttotal matchings at this process: {:?}", start.elapsed(), total);
+        println!("elapsed: {:?}\ttotal matchings at this process: {:?}", start_main.elapsed(), total);
     }
 }
 
