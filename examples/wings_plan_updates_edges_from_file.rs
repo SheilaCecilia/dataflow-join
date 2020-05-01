@@ -165,7 +165,7 @@ fn main () {
             let mut edgesQ = Vec::new();
             if local_index == 0 {
                 read_start = ::std::time::Instant::now();
-                edgesQ = read_batch_edges(&mut reader_option.as_mut().unwrap(), batch_size);
+                edgesQ = read_batch_edges(&mut reader_option.as_mut().unwrap(), batch_size, index);
                 batch_start = ::std::time::Instant::now();
             }
 
@@ -236,9 +236,10 @@ fn main () {
     }
 }
 
-fn read_batch_edges(reader: &mut BufReader<File>, batch: usize) -> Vec<((u32, u32), i32)>{
-    let mut batch_edges = Vec::new();
+fn read_batch_edges(reader: &mut BufReader<File>, batch: usize, index: u32) -> Vec<((u32, u32), i32)>{
+    println!("Worker {} start: Read batch with {} edges", index, batch);
 
+    let mut batch_edges = Vec::new();
     let mut num_edges = 0;
 
     while num_edges < batch {
@@ -252,6 +253,8 @@ fn read_batch_edges(reader: &mut BufReader<File>, batch: usize) -> Vec<((u32, u3
             num_edges += 1;
         }
     }
+
+    println!("Worker {} end: Read batch with {} edges", index, batch);
 
     batch_edges
 }
