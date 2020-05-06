@@ -278,7 +278,7 @@ mod edge_list_neu {
                     Ordering::Equal => {
                         counts[s_cursor] += updates[u_cursor].1;
                         s_cursor += 1;
-                        u_cursor += 1;
+                        //u_cursor += 1;
                     },
                     Ordering::Greater => {
                         let step = 1 + advance(&updates[(u_cursor+1)..], |x| x.0 < source[s_cursor]);
@@ -734,6 +734,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
             let mut effort = 16;
 
             let temp_index = index + advance(&data[index..],|x|func1(&x.0)<= key);
+            let mut idx = index;
             effort += temp_index - index;
 
             // (i) position `self.compact` cursor so that we can re-use it.
@@ -767,16 +768,20 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
 
                 // move c_cursor to where `proposal` would start ..
                 c_cursor += advance(&compact_slice[c_cursor..], |x| x < proposal);
+                let prev_c_cursor = c_cursor;
+
                 while compact_slice.get(c_cursor) == Some(proposal) {
                     *count += 1;
                     c_cursor += 1;
                 }
+                c_cursor = prev_c_cursor;
 
                 // move d_cursor to where `proposal` would start ..
                 d_cursor += advance(&diffs_slice[d_cursor..], |x| &x.1 < proposal);
+                let prev_d_cursor = d_cursor;
 
-                let src = data[index].0.get_src();
-                let dst = data[index].0.get_dst();
+                let src = data[idx].0.get_src();
+                let dst = data[idx].0.get_dst();
 
                 while diffs_slice.get(d_cursor).map(|x| &x.1) == Some(proposal) {
                     if (start_time > &diffs_slice[d_cursor].2)
@@ -787,12 +792,15 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
                     }
                     d_cursor += 1;
                 }
+                d_cursor = prev_d_cursor;
+                idx += 1;
             }
             //remove absent prefixes
             let mut t_cursor = 0;
 
             while index < temp_index{
-                if temp[t_cursor] != 0||(r_cursor > 0 && func1(&data[index].0) == func1(&data[r_cursor - 1].0) && func2(&data[index].0) == func2(&data[r_cursor - 1].0)){
+                if temp[t_cursor] > 0 {
+                //if temp[t_cursor] > 0||(r_cursor > 0 && func1(&data[index].0) == func1(&data[r_cursor - 1].0) && func2(&data[index].0) == func2(&data[r_cursor - 1].0)){
                     data.swap(r_cursor,index);
                     r_cursor += 1;
                 }
