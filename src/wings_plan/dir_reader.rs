@@ -13,10 +13,17 @@ pub struct DirReader {
 
 impl DirReader {
     pub fn new(dirname: &str) -> DirReader {
+//        let mut paths = fs::read_dir(dirname).unwrap()
+//            .map(|res| res.map(|e| e.path()))
+//            .collect::<Result<Vec<_>, io::Error>>().unwrap().into_iter();
         let mut paths = fs::read_dir(dirname).unwrap()
             .map(|res| res.map(|e| e.path()))
-            .collect::<Result<Vec<_>, io::Error>>().unwrap().into_iter();
+            .collect::<Result<Vec<_>, io::Error>>().unwrap();
 
+        paths.sort();
+
+        let mut paths = paths.into_iter();
+        
         let path = paths.next().unwrap();
         let file = File::open(path).unwrap();
         let reader = BufReader::new(file);
