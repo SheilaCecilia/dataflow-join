@@ -17,14 +17,13 @@ fn main () {
 
     let send = Arc::new(Mutex::new(0));
     let send2 = send.clone();
-    let send3 = send.clone();
 
     let inspect = ::std::env::args().find(|x| x == "inspect").is_some();
 
     timely::execute_from_args(std::env::args(), move |root| {
 
+        let start_dataflow = ::std::time::Instant::now();
         let send = send.clone();
-        let mut input = InputHandle::new();
 
         // used to partition graph loading
         let index = root.index() as u32;
@@ -55,14 +54,12 @@ fn main () {
 
             plan.track_motif(&graph_index, &mut probe, send);
 
-            builder.input_from(&mut input)
-                .exchange(|x| 0)
-                .count();
-
-
             (graph, query, graph_index.forward.handle , graph_index.reverse.handle, probe, handles)
         });
+        let end_dataflow = ::std::time::Instant::now();
+        println!("worker {} build dataflow: {:?}", index, end_dataflow.duration_since(start_dataflow));
 
+        let start_read_base = ::std::time::Instant::now();
         // number of nodes introduced at a time
         let num_processes = peers as usize / num_threads;
         let batch_size: usize = std::env::args().nth(2).unwrap().parse().unwrap();
@@ -90,6 +87,8 @@ fn main () {
         inputG.advance_to(prevG.inner + 1);
         inputQ.advance_to(prevG.inner + 1);
         root.step_while(|| probe.less_than(inputG.time()));
+        let end_read_base = ::std::time::Instant::now();
+        println!("worker {} read base graph: {:?}", index, end_read_base.duration_since(start_read_base));
 
         // start the experiment!
         let start = ::std::time::Instant::now();
@@ -127,9 +126,9 @@ fn main () {
         let mut batch_mid: std::time::Instant;
         let mut batch_end: std::time::Instant;
 
-        let mut read_edge_time =  Vec::new();
-        let mut update_index_time = Vec::new();
-        let mut pattern_matching_time = Vec::new();
+//        let mut read_edge_time =  Vec::new();
+//        let mut update_index_time = Vec::new();
+//        let mut pattern_matching_time = Vec::new();
 
         while batch_index < num_batches {
             let mut edgesQ = Vec::new();
@@ -158,30 +157,30 @@ fn main () {
             handles.merge_to(&prev);
             batch_end = ::std::time::Instant::now();
 
-//            if local_index == 0{
-//                println!("Batch {} read edge time: {:?}", batch_index, batch_start.duration_since(read_start));
-//                println!("Batch {} update index time: {:?}", batch_index, batch_mid.duration_since(batch_start));
-//                println!("Batch {} pattern matching time: {:?}", batch_index, batch_end.duration_since(batch_mid));
-//            }
-
             if local_index == 0{
-                read_edge_time.push(batch_start.duration_since(read_start));
-                update_index_time.push(batch_mid.duration_since(batch_start));
-                pattern_matching_time.push(batch_end.duration_since(batch_mid));
-
-                if (batch_index + 1) % 100 == 0 {
-                    let idx_start = batch_index;
-                    let idx_end = batch_index + 1;
-                    for idx in idx_start..idx_end {
-                        println!("Batch {} read edge time: {:?}", idx, read_edge_time[idx - idx_start]);
-                        println!("Batch {} update index time: {:?}", idx, update_index_time[idx - idx_start]);
-                        println!("Batch {} pattern matching time: {:?}", idx, pattern_matching_time[idx - idx_start]);
-                    }
-                    read_edge_time.clear();
-                    update_index_time.clear();
-                    pattern_matching_time.clear();
-                }
+                println!("Batch {} read edge time: {:?}", batch_index, batch_start.duration_since(read_start));
+                println!("Batch {} update index time: {:?}", batch_index, batch_mid.duration_since(batch_start));
+                println!("Batch {} pattern matching time: {:?}", batch_index, batch_end.duration_since(batch_mid));
             }
+
+//            if local_index == 0{
+//                read_edge_time.push(batch_start.duration_since(read_start));
+//                update_index_time.push(batch_mid.duration_since(batch_start));
+//                pattern_matching_time.push(batch_end.duration_since(batch_mid));
+//
+//                if (batch_index + 1) % 100 == 0 {
+//                    let idx_start = batch_index;
+//                    let idx_end = batch_index + 1;
+//                    for idx in idx_start..idx_end {
+//                        println!("Batch {} read edge time: {:?}", idx, read_edge_time[idx - idx_start]);
+//                        println!("Batch {} update index time: {:?}", idx, update_index_time[idx - idx_start]);
+//                        println!("Batch {} pattern matching time: {:?}", idx, pattern_matching_time[idx - idx_start]);
+//                    }
+//                    read_edge_time.clear();
+//                    update_index_time.clear();
+//                    pattern_matching_time.clear();
+//                }
+//            }
 
             batch_index += 1;
         }
@@ -196,7 +195,7 @@ fn main () {
 
     }).unwrap();
 
-    let total = if let Ok(lock) = send3.lock() {
+    let total = if let Ok(lock) = send2.lock() {
         *lock
     }
     else { 0 };
