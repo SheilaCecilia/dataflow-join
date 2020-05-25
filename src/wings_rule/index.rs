@@ -392,8 +392,8 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
     {
         // sorting allows us to re-use computation for the same key, and simplifies the searching
         // of self.compact and self.diffs.
-        //data.sort_unstable_by(|x,y| (func(&x.0), x.0.get_src(), x.0.get_dst()).cmp(&(func(&y.0), y.0.get_src(), y.0.get_dst())));
-        data.sort_unstable_by(|x,y| (func(&x.0)).cmp(&(func(&y.0))));
+        data.sort_unstable_by(|x,y| (func(&x.0), x.0.get_src(), x.0.get_dst()).cmp(&(func(&y.0), y.0.get_src(), y.0.get_dst())));
+        //data.sort_unstable_by(|x,y| (func(&x.0)).cmp(&(func(&y.0))));
 
         // fingers into compacted data and uncommited updates.
         let mut offset_cursor = 0;
@@ -420,108 +420,108 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
             // (ic): incorporate updates from `self.diffs`.
             let values = self.diffs.values_from(&key, &mut diffs_cursor);
 
-//            for &(ref _key, ref val, ref time, wgt) in values.iter() {
-//                if time < start_time{
-//                    proposals.push((val.clone(), wgt));
-//                }
-//            }
+            for &(ref _key, ref val, ref time, wgt) in values.iter() {
+                if time < start_time{
+                    proposals.push((val.clone(), wgt));
+                }
+            }
 
             //propose key -> extension, if (key < src) || (key == src && extension < dst)
-            //let mut dst_cursor = 0;
+            let mut dst_cursor = 0;
 
             while index < data.len() && key == func(&data[index].0) {
 
                 let src = data[index].0.get_src();
-                let dst = data[index].0.get_dst();
-                let mut new_proposals = proposals.clone();
+//                let dst = data[index].0.get_dst();
+//                let mut new_proposals = proposals.clone();
+//
+//                for &(ref _key, ref val, ref time, wgt) in values.iter() {
+//                    if time < start_time||(time == start_time && (key < src || (key == src && val < &dst))){
+//                        new_proposals.push((val.clone(), wgt));
+//                    }
+//                }
+//
+//                consolidate_proposals(&mut new_proposals);
+//
+//                for &(ref val, cnt) in &new_proposals {
+//                    for _ in 0..cnt {
+//                        if !data[index].0.find(val){
+//                            data[index].1.push(val.clone());
+//                        }
+//                    }
+//                }
+//                index += 1;
 
-                for &(ref _key, ref val, ref time, wgt) in values.iter() {
-                    if time < start_time||(time == start_time && (key < src || (key == src && val <= &dst))){
-                        new_proposals.push((val.clone(), wgt));
+
+                if src < key {
+                    // (id): consolidate all the counts that we added in, keep positive counts.
+                    consolidate_proposals(&mut proposals);
+
+                    //for all src with src < key, in self.diffs only edges with less timestamp can be seen, propose them all
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() < key {
+                        for &(ref val, cnt) in &proposals {
+                            for _ in 0..cnt {
+                                if !data[index].0.find(val){
+                                    data[index].1.push(val.clone());
+                                }
+                            }
+                        }
+                        index += 1;
                     }
                 }
+                else if src == key {
+                    //re-use computation for the same key, src
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src {
+                        let dst = data[index].0.get_dst();
 
-                consolidate_proposals(&mut new_proposals);
+                        //for src with src == key, except edges with less timestamp, edges (key -> extension) with the same timestamp
+                        //and extension < dst can be seen
+                        while dst_cursor < values.len() && values[dst_cursor].1 < dst {
+                            if values[dst_cursor].2 == *start_time {
+                                proposals.push((values[dst_cursor].1.clone(), values[dst_cursor].3));
+                            }
+                            dst_cursor += 1;
+                        }
+                        // (id): consolidate all the counts that we added in, keep positive counts.
+                        consolidate_proposals(&mut proposals);
 
-                for &(ref val, cnt) in &new_proposals {
-                    for _ in 0..cnt {
-                        if !data[index].0.find(val){
-                            data[index].1.push(val.clone());
+                        //propose for those with the same key, src and dst
+                        while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src && data[index].0.get_dst() == dst {
+                            for &(ref val, cnt) in &proposals {
+                                for _ in 0..cnt {
+                                    if !data[index].0.find(val){
+                                        data[index].1.push(val.clone());
+                                    }
+                                }
+                            }
+                            index += 1;
                         }
                     }
                 }
-                index += 1;
+                else if src > key {
+                    //all edges with less equal timestamp can be seen,re-use computation from (src == key)
+                    while dst_cursor < values.len() {
+                        if values[dst_cursor].2 == *start_time{
+                            proposals.push((values[dst_cursor].1.clone(), values[dst_cursor].3));
+                        }
+                        dst_cursor += 1;
+                    }
 
+                    // (id): consolidate all the counts that we added in, keep positive counts.
+                    consolidate_proposals(&mut proposals);
 
-//                if src < key {
-//                    // (id): consolidate all the counts that we added in, keep positive counts.
-//                    consolidate_proposals(&mut proposals);
-//
-//                    //for all src with src < key, in self.diffs only edges with less timestamp can be seen, propose them all
-//                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() < key {
-//                        for &(ref val, cnt) in &proposals {
-//                            for _ in 0..cnt {
-//                                if !data[index].0.find(val){
-//                                    data[index].1.push(val.clone());
-//                                }
-//                            }
-//                        }
-//                        index += 1;
-//                    }
-//                }
-//                else if src == key {
-//                    //re-use computation for the same key, src
-//                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src {
-//                        let dst = data[index].0.get_dst();
-//
-//                        //for src with src == key, except edges with less timestamp, edges (key -> extension) with the same timestamp
-//                        //and extension < dst can be seen
-//                        while dst_cursor < values.len() && values[dst_cursor].1 < dst {
-//                            if values[dst_cursor].2 == *start_time {
-//                                proposals.push((values[dst_cursor].1.clone(), values[dst_cursor].3));
-//                            }
-//                            dst_cursor += 1;
-//                        }
-//                        // (id): consolidate all the counts that we added in, keep positive counts.
-//                        consolidate_proposals(&mut proposals);
-//\
-//                        //propose for those with the same key, src and dst
-//                        while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src && data[index].0.get_dst() == dst {
-//                            for &(ref val, cnt) in &proposals {
-//                                for _ in 0..cnt {
-//                                    if !data[index].0.find(val){
-//                                        data[index].1.push(val.clone());
-//                                    }
-//                                }
-//                            }
-//                            index += 1;
-//                        }
-//                    }
-//                }
-//                else if src > key {
-//                    //all edges with less equal timestamp can be seen,re-use computation from (src == key)
-//                    while dst_cursor < values.len() {
-//                        if values[dst_cursor].2 == *start_time{
-//                            proposals.push((values[dst_cursor].1.clone(), values[dst_cursor].3));
-//                        }
-//                        dst_cursor += 1;
-//                    }
-//
-//                    // (id): consolidate all the counts that we added in, keep positive counts.
-//                    consolidate_proposals(&mut proposals);
-//
-//                    //propose for all with the same key and src > key
-//                    while index < data.len() && func(&data[index].0) == key{
-//                        for &(ref val, cnt) in &proposals {
-//                            for _ in 0..cnt {
-//                                if !data[index].0.find(val){
-//                                    data[index].1.push(val.clone());
-//                                }
-//                            }
-//                        }
-//                        index += 1;
-//                    }
-//                }
+                    //propose for all with the same key and src > key
+                    while index < data.len() && func(&data[index].0) == key{
+                        for &(ref val, cnt) in &proposals {
+                            for _ in 0..cnt {
+                                if !data[index].0.find(val){
+                                    data[index].1.push(val.clone());
+                                }
+                            }
+                        }
+                        index += 1;
+                    }
+                }
             }
         }
     }
@@ -531,7 +531,7 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
               P: Indexable<Key>,
     {
         data.sort_unstable_by(|x,y| (func(&x.0), x.0.get_src(), x.0.get_dst()).cmp(&(func(&y.0), y.0.get_src(), y.0.get_dst())));
-
+        //data.sort_unstable_by(|x,y| (func(&x.0)).cmp(&(func(&y.0))));
         // fingers into compacted data and uncommited updates.
         let mut offset_cursor = 0;
         let mut diffs_cursor = 0;
@@ -557,88 +557,88 @@ impl<Key: Ord+Hash+Clone, T: Ord+Clone> Index<Key, T> {
             // (ic): incorporate updates from `self.diffs`.
             let values = self.diffs.values_from(&key, &mut diffs_cursor);
 
-//            for &(ref _key, ref val, ref time, wgt) in values.iter() {
-//                if time < &start_time{
-//                    proposals.push((val.clone(), wgt));
-//                }
-//            }
-//
-//            //propose key <- extension, if (extension < src) || (extension == src && key < dst)
-//            let mut src_cursor = 0;
+            for &(ref _key, ref val, ref time, wgt) in values.iter() {
+                if time < &start_time{
+                    proposals.push((val.clone(), wgt));
+                }
+            }
+
+            //propose key <- extension, if (extension < src) || (extension == src && key < dst)
+            let mut src_cursor = 0;
 
             while index < data.len() && key == func(&data[index].0) {
 
                 let dst = data[index].0.get_dst();
                 let src = data[index].0.get_src();
 
-                let mut new_proposals = proposals.clone();
+//                let mut new_proposals = proposals.clone();
+//
+//                for &(ref _key, ref val, ref time, wgt) in values.iter() {
+//                    if time < start_time||(time == start_time && (val < &src || (val == &src && key < dst))){
+//                        new_proposals.push((val.clone(), wgt));
+//                    }
+//                }
+//
+//                consolidate_proposals(&mut new_proposals);
+//
+//                for &(ref val, cnt) in &new_proposals {
+//                    for _ in 0..cnt {
+//                        if !data[index].0.find(val){
+//                            data[index].1.push(val.clone());
+//                        }
+//                    }
+//                }
+//                index += 1;
 
-                for &(ref _key, ref val, ref time, wgt) in values.iter() {
-                    if time < start_time||(time == start_time && (val < &src || (val == &src && key < dst))){
-                        new_proposals.push((val.clone(), wgt));
-                    }
-                }
 
-                consolidate_proposals(&mut new_proposals);
+                if dst <= key {// propose extension < src
 
-                for &(ref val, cnt) in &new_proposals {
-                    for _ in 0..cnt {
-                        if !data[index].0.find(val){
-                            data[index].1.push(val.clone());
+                    while src_cursor < values.len() && values[src_cursor].1 < src {
+                        if values[src_cursor].2 == *start_time{
+                            proposals.push((values[src_cursor].1.clone(), values[src_cursor].3));
                         }
+                        src_cursor += 1;
+                    }
+
+                    // (id): consolidate all the counts that we added in, keep positive counts.
+                    consolidate_proposals(&mut proposals);
+
+                    // propose for all with the same key, src and dst (dst <= key)
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src && data[index].0.get_dst() <= key {
+                        for &(ref val, cnt) in &proposals {
+                            for _ in 0..cnt {
+                                if !data[index].0.find(val){
+                                    data[index].1.push(val.clone());
+                                }
+                            }
+                        }
+                        index += 1;
                     }
                 }
-                index += 1;
+                else if dst > key { // propose extension <= src
 
+                    while src_cursor < values.len()&& values[src_cursor].1 <= src {
+                        if values[src_cursor].2 == *start_time{
+                            proposals.push((values[src_cursor].1.clone(), values[src_cursor].3));
+                        }
+                        src_cursor += 1;
+                    }
 
-//                if dst <= key {// propose extension < src
-//
-//                    while src_cursor < values.len() && values[src_cursor].1 < src {
-//                        if values[src_cursor].2 == *start_time{
-//                            proposals.push((values[src_cursor].1.clone(), values[src_cursor].3));
-//                        }
-//                        src_cursor += 1;
-//                    }
-//
-//                    // (id): consolidate all the counts that we added in, keep positive counts.
-//                    consolidate_proposals(&mut proposals);
-//
-//                    // propose for all with the same key, src and dst (dst <= key)
-//                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src && data[index].0.get_dst() <= key {
-//                        for &(ref val, cnt) in &proposals {
-//                            for _ in 0..cnt {
-//                                if !data[index].0.find(val){
-//                                    data[index].1.push(val.clone());
-//                                }
-//                            }
-//                        }
-//                        index += 1;
-//                    }
-//                }
-//                else if dst > key { // propose extension <= src
-//
-//                    while src_cursor < values.len()&& values[src_cursor].1 <= src {
-//                        if values[src_cursor].2 == *start_time{
-//                            proposals.push((values[src_cursor].1.clone(), values[src_cursor].3));
-//                        }
-//                        src_cursor += 1;
-//                    }
-//
-//                    // (id): consolidate all the counts that we added in, keep positive counts.
-//                    consolidate_proposals(&mut proposals);
-//
-//                    // propose for all with the same key ,src and dst (dst > key)
-//                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src {
-//                        for &(ref val, cnt) in &proposals {
-//                            for _ in 0..cnt {
-//                                if !data[index].0.find(val){
-//                                    data[index].1.push(val.clone());
-//                                }
-//                            }
-//                        }
-//                        index += 1;
-//                    }
-//                }
+                    // (id): consolidate all the counts that we added in, keep positive counts.
+                    consolidate_proposals(&mut proposals);
+
+                    // propose for all with the same key ,src and dst (dst > key)
+                    while index < data.len() && func(&data[index].0) == key && data[index].0.get_src() == src {
+                        for &(ref val, cnt) in &proposals {
+                            for _ in 0..cnt {
+                                if !data[index].0.find(val){
+                                    data[index].1.push(val.clone());
+                                }
+                            }
+                        }
+                        index += 1;
+                    }
+                }
             }
         }
     }

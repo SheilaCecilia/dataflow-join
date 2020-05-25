@@ -23,7 +23,7 @@ impl DirReader {
         paths.sort();
 
         let mut paths = paths.into_iter();
-        
+
         let path = paths.next().unwrap();
         let file = File::open(path).unwrap();
         let reader = BufReader::new(file);
@@ -39,7 +39,13 @@ impl DirReader {
         while edge_index < num_edges {
             let mut line = String::new();
             if self.reader.read_line(&mut line).unwrap() == 0{
-                let path = self.paths.next().unwrap();
+                let path: PathBuf;
+                if let Some(p) = self.paths.next() {
+                    path = p;
+                }else {
+                    return edges;
+                }
+
                 let file = File::open(path).unwrap();
                 self.reader = BufReader::new(file);
                 continue;

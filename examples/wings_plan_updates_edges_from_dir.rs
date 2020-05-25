@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use alg3_dynamic::wings_plan::*;
 
 use timely::communication::{Configuration};
-use timely::dataflow::{InputHandle, ProbeHandle};
+use timely::dataflow::{ProbeHandle};
 use timely::dataflow::operators::*;
 
 #[allow(non_snake_case)]
