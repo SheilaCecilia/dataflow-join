@@ -4,7 +4,7 @@ extern crate timely;
 extern crate graph_map;
 extern crate alg3_dynamic;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use alg3_dynamic::wings_plan::*;
 
@@ -17,14 +17,18 @@ use std::error::Error;
 use std::fs::File;
 use std::io::prelude::*;
 use std::path::Path;
+use std::collections::HashMap;
+
+type Label = u32;
 
 #[allow(non_snake_case)]
 fn main () {
-    //datasetFile  batchSize  numBatch  baseSize  planFile
+    //datasetFile  batchSize  numBatch  baseSize  planFile vertexLabelFile
     let start_main = ::std::time::Instant::now();
 
     let send = Arc::new(Mutex::new(0));
     let send2 = send.clone();
+    let labeled_query_count = Arc::new(RwLock::new(HashMap::new()));
 
     let inspect = ::std::env::args().find(|x| x == "inspect").is_some();
 
@@ -32,6 +36,7 @@ fn main () {
         
         let start_dataflow = ::std::time::Instant::now();
         let send = send.clone();
+        let counters = labeled_query_count.clone();
 
         // used to partition graph loading
         let index = root.index() as u32;
@@ -48,6 +53,10 @@ fn main () {
         let plan_filename = std::env::args().nth(5).unwrap();
         let plan = plan::read_plan(&plan_filename);
 
+        //read vertex label
+        let vertex_label_filename = std::env::args().nth(6).unwrap();
+        let vertex_id_label_map = Arc::new(read_vertex_id_label_mapping(&vertex_label_filename));
+
         // handles to input and probe, but also both indices so we can compact them.
         let (mut inputG, mut inputQ, forward_probe, reverse_probe, probe, handles) = root.dataflow::<u32,_,_>(|builder| {
 
@@ -60,7 +69,7 @@ fn main () {
 
             let mut probe = ProbeHandle::new();
 
-            plan.track_motif(&graph_index, &mut probe, send);
+            plan.track_motif(&graph_index, &mut probe, send, counters, vertex_id_label_map);
 
             (graph, query, graph_index.forward.handle , graph_index.reverse.handle, probe, handles)
         });
@@ -257,5 +266,35 @@ fn read_batch_edges(reader: &mut BufReader<File>, batch: usize, index: u32) -> V
     println!("Worker {} end: Read batch with {} edges", index, batch);
 
     batch_edges
+}
+
+fn read_vertex_id_label_mapping(filename: &String) -> HashMap<u32, u32> {
+    let mut vertex_label_map = HashMap::new();
+
+    let path = Path::new(&filename);
+    let display = path.display();
+    let file = match File::open(&path) {
+        // The `description` method of `io::Error` returns a string that describes the error
+        Err(why) => {
+            panic!("EXCEPTION: couldn't open {}: {}",
+                   display,
+                   Error::description(&why))
+        }
+        Ok(file) => file,
+    };
+
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let good_line = line.ok().expect("EXCEPTION: read error");
+        if !good_line.starts_with('#') && good_line.len() > 0 {
+            let elts: Vec<&str> = good_line[..].split_whitespace().collect();
+            let node: Node = elts[0].parse().ok().expect("malformed node");
+            let label: Label = elts[1].parse().ok().expect("malformed label");
+            vertex_label_map.insert(node, label);
+        }
+    }
+
+    vertex_label_map
 }
 

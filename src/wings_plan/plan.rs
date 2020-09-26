@@ -3,11 +3,12 @@ use std::rc::Rc;
 use timely::dataflow::*;
 use timely::dataflow::operators::*;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use timely::dataflow::{ProbeHandle};
 use timely::dataflow::operators::{Exchange, Inspect, Probe};
 use timely::{ExchangeData};
 
+use std::collections::HashMap;
 use std::io::BufReader;
 use std::error::Error;
 use std::fs::File;
@@ -21,6 +22,7 @@ use wings_plan::ExtendEdges;
 
 pub type Node = u32;
 pub type Edge = (Node, Node);
+type Label = u32;
 
 #[derive(Debug, Default)]
 pub struct PlanNode{
@@ -29,6 +31,7 @@ pub struct PlanNode{
     num_edges: usize,
     subgraph_num_vertices: usize,
     is_query: bool,
+    idx: usize
 }
 
 #[derive(Debug, Default)]
@@ -55,15 +58,15 @@ pub struct Plan{
 }
 
 impl Plan{
-    pub fn track_motif<H1, H2, G: Scope>(&self, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<u64>>)
+    pub fn track_motif<H1, H2, G: Scope>(&self, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<u64>>, labeled_counters: Arc<RwLock<HashMap<(usize,Vec<u32>),Mutex<u64>>>>, vertex_id_label_map: Arc<HashMap<u32, u32>>)
         where H1: Fn(Node)->u64 + 'static,
               H2: Fn(Node)->u64 + 'static
     {
         let root = self.nodes[self.root_node_id].clone();
-        self.execute_node(root, &graph.updates, graph, probe, counter);
+        self.execute_node(root, &graph.updates, graph, probe, counter, labeled_counters, vertex_id_label_map);
     }
 
-    fn execute_node<H1, H2, G: Scope, P>(&self, root: Rc<PlanNode>, stream: &Stream<G, (P, i32)>, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<u64>>)
+    fn execute_node<H1, H2, G: Scope, P>(&self, root: Rc<PlanNode>, stream: &Stream<G, (P, i32)>, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<u64>>, labeled_counters: Arc<RwLock<HashMap<(usize,Vec<u32>),Mutex<u64>>>>, vertex_id_label_map: Arc<HashMap<u32, u32>>)
         where H1: Fn(Node)->u64 + 'static,
               H2: Fn(Node)->u64 + 'static,
               P: ::std::fmt::Debug+ExchangeData+Indexable<Node>,
@@ -71,12 +74,16 @@ impl Plan{
     {
         let start_idx = root.edge_start_idx;
         let end_idx = root.edge_start_idx + root.num_edges;
-        
+
         for index in start_idx .. end_idx{
             let child = self.edges[index].dst.clone();
+            let child1 = self.edges[index].dst.clone();
 
             let counter1 = counter.clone();
             let counter2 = counter.clone();
+            let labeled_counters = labeled_counters.clone();
+            let vertex_id_label_map1 = vertex_id_label_map.clone();
+            let vertex_id_label_map2 = vertex_id_label_map.clone();
 
             let plan_edge = &self.edges[index];
             let intersect_attributes = plan_edge.get_intersect_attributes();
@@ -103,10 +110,36 @@ impl Plan{
                             (clone, w)
                         }))
             };
-
+            let child_counters = labeled_counters.clone();
             if child.is_query{
                 output.probe_with(probe);
                 output.exchange(|x| (x.0).index(0) as u64)
+                    .inspect_batch(move |_,xs| {
+                        let mut batch_query_count = HashMap::new();
+                        let vertex_id_label_map3 = vertex_id_label_map2.clone();
+                        for x in xs.iter(){
+                            let labeled_query = label_matching(&x.0, vertex_id_label_map3.clone());
+                            let counter =  batch_query_count.entry((child.idx, labeled_query)).or_insert(0 as u64);
+                            *counter += 1;
+                        }
+
+                        for (query, count) in batch_query_count.into_iter() {
+                            let counters = labeled_counters.read().expect("Mutex poisoned");
+
+                            if let Some(counter) = counters.get(&query) {
+                                let mut counter = counter.lock().expect("Mutex poisoned");
+                                *counter += count;
+                                println!("Labeled {:?}: {}", query, *counter);
+                                continue;
+                            }
+
+                            drop(counters);
+                            let mut counters = labeled_counters.write().expect("RwLock poisoned");
+                            println!("Labeled {:?}: {}", query, count);
+                            counters.entry(query).or_insert_with(||Mutex::new(count));
+
+                        }
+                    })
                     //.inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
                     .count()
                     //.inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
@@ -114,9 +147,11 @@ impl Plan{
                         if let Ok(mut bound) = counter1.lock() {
                             *bound += x[0] as u64;
                         }
+                        //Find count for each labeled query
+
                     });
             }
-            self.execute_node(child, &output, graph, probe, counter2);
+            self.execute_node(child1, &output, graph, probe, counter2, child_counters, vertex_id_label_map1);
         }
     }
 
@@ -193,7 +228,7 @@ pub fn read_plan(filename:&str) -> Plan{
     reader.read_line(&mut line).unwrap();
     let nodes: usize = line.trim().parse().unwrap();
 
-    for _i in 0 .. nodes {
+    for idx in 0 .. nodes {
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
         let elts: Vec<&str> = line[..].split_whitespace().collect();
@@ -202,7 +237,7 @@ pub fn read_plan(filename:&str) -> Plan{
         let subgraph_num_vertices: usize = elts[2].parse().unwrap();
         let is_query: usize = elts[3].parse().unwrap();
         let is_query = if is_query == 1 { true } else {false};
-        plan.nodes.push(Rc::new(PlanNode{ edge_start_idx, num_edges, subgraph_num_vertices, is_query }));
+        plan.nodes.push(Rc::new(PlanNode{ edge_start_idx, num_edges, subgraph_num_vertices, is_query, idx}));
     }
 
     let mut line = String::new();
@@ -242,4 +277,14 @@ pub fn read_plan(filename:&str) -> Plan{
     plan.initialize();
 
     plan
+}
+
+fn label_matching<P: Indexable<Node>>(matching: &P, vertex_id_label_map: Arc<HashMap<Node, Label>>) -> Vec<Label> {
+    let mut labels = Vec::new();
+
+    for i in 0..matching.length() {
+        labels.push(vertex_id_label_map[&matching.index(i)])
+    }
+
+    labels
 }
