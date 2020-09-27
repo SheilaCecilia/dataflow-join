@@ -287,7 +287,7 @@ fn read_vertex_id_label_mapping(filename: &String) -> HashMap<u32, u32> {
 
     for line in reader.lines() {
         let good_line = line.ok().expect("EXCEPTION: read error");
-        if !good_line.starts_with('#') && good_line.len() > 0 {
+        if good_line.len() > 0 {
             let elts: Vec<&str> = good_line[..].split_whitespace().collect();
             let node: Node = elts[0].parse().ok().expect("malformed node");
             let label: Label = elts[1].parse().ok().expect("malformed label");

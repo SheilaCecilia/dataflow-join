@@ -2,21 +2,23 @@ extern crate timely;
 extern crate graph_map;
 extern crate alg3_dynamic;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 
 use alg3_dynamic::wings_plan::*;
 
 use timely::communication::{Configuration};
 use timely::dataflow::{ProbeHandle};
 use timely::dataflow::operators::*;
+use std::collections::HashMap;
 
 #[allow(non_snake_case)]
 fn main () {
-    //datasetDirectory  batchSize  numBatch  baseSize  planFile
+    //datasetDirectory  batchSize  numBatch  baseSize  planFile vertexLabelDirectory
     let start = ::std::time::Instant::now();
 
     let send = Arc::new(Mutex::new(0));
     let send2 = send.clone();
+    let labeled_query_count = Arc::new(RwLock::new(HashMap::new()));
 
     let inspect = ::std::env::args().find(|x| x == "inspect").is_some();
 
@@ -24,6 +26,7 @@ fn main () {
 
         let start_dataflow = ::std::time::Instant::now();
         let send = send.clone();
+        let counters = labeled_query_count.clone();
 
         // used to partition graph loading
         let index = root.index() as u32;
@@ -40,6 +43,11 @@ fn main () {
         let plan_filename = std::env::args().nth(5).unwrap();
         let plan = plan::read_plan(&plan_filename);
 
+        //read vertex label
+        let vertex_label_dirname = std::env::args().nth(6).unwrap();
+        let mut vertex_label_reader = DirReader::new(&vertex_label_dirname);
+        let vertex_id_label_map = Arc::new(vertex_label_reader.read_vertex_labels());
+
         // handles to input and probe, but also both indices so we can compact them.
         let (mut inputG, mut inputQ, forward_probe, reverse_probe, probe, handles) = root.dataflow::<u32,_,_>(|builder| {
 
@@ -52,7 +60,7 @@ fn main () {
 
             let mut probe = ProbeHandle::new();
 
-            plan.track_motif(&graph_index, &mut probe, send);
+            plan.track_motif(&graph_index, &mut probe, send,counters, vertex_id_label_map);
 
             (graph, query, graph_index.forward.handle , graph_index.reverse.handle, probe, handles)
         });
