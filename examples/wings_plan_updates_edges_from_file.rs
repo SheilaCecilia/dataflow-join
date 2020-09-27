@@ -32,11 +32,16 @@ fn main () {
 
     let inspect = ::std::env::args().find(|x| x == "inspect").is_some();
 
+    //read vertex label
+    let vertex_label_filename = std::env::args().nth(6).unwrap();
+    let vertex_id_label_map = Arc::new(read_vertex_id_label_mapping(&vertex_label_filename));
+
     timely::execute_from_args(std::env::args(), move |root| {
         
         let start_dataflow = ::std::time::Instant::now();
         let send = send.clone();
         let counters = labeled_query_count.clone();
+        let vertex_id_label_map = vertex_id_label_map.clone();
 
         // used to partition graph loading
         let index = root.index() as u32;
@@ -52,10 +57,6 @@ fn main () {
 
         let plan_filename = std::env::args().nth(5).unwrap();
         let plan = plan::read_plan(&plan_filename);
-
-        //read vertex label
-        let vertex_label_filename = std::env::args().nth(6).unwrap();
-        let vertex_id_label_map = Arc::new(read_vertex_id_label_mapping(&vertex_label_filename));
 
         // handles to input and probe, but also both indices so we can compact them.
         let (mut inputG, mut inputQ, forward_probe, reverse_probe, probe, handles) = root.dataflow::<u32,_,_>(|builder| {

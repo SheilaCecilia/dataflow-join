@@ -116,9 +116,8 @@ impl Plan{
                 output.exchange(|x| (x.0).index(0) as u64)
                     .inspect_batch(move |_,xs| {
                         let mut batch_query_count = HashMap::new();
-                        let vertex_id_label_map3 = vertex_id_label_map2.clone();
                         for x in xs.iter(){
-                            let labeled_query = label_matching(&x.0, vertex_id_label_map3.clone());
+                            let labeled_query = label_matching(&x.0, vertex_id_label_map2.clone());
                             let counter =  batch_query_count.entry((child.idx, labeled_query)).or_insert(0 as u64);
                             *counter += 1;
                         }
