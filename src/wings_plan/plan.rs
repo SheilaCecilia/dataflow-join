@@ -141,7 +141,7 @@ impl Plan{
                     })
                     //.inspect_batch(|t,x| println!("{:?}: {:?}", t, x))
                     .count()
-                    //.inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
+                    .inspect_batch(move |t,x| println!("{:?}: {:?}", t, x))
                     .inspect_batch(move |_,x| {
                         if let Ok(mut bound) = counter1.lock() {
                             *bound += x[0] as u64;
