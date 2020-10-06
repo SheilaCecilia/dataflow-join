@@ -60,7 +60,6 @@ fn main () {
         let num_processes = peers as usize / num_threads;
 
         let edge_label = Arc::new(RwLock::new(vec![Vec::new(); num_processes as usize]));
-        let edge_label1 = edge_label.clone();
 
         let plan_filename = std::env::args().nth(5).unwrap();
         let plan = count_edge_labeled_query_plan::read_plan(&plan_filename);
@@ -71,19 +70,31 @@ fn main () {
         let (mut inputLabel1, mut inputG, mut inputQ, forward_probe, reverse_probe, probe, handles, label_probe1) = root.dataflow::<u32,_,_>(|builder| {
 
             let (label1, dL1) = builder.new_input::<(u64, Vec<(u32, u32 ,u32)>)>();
-            let (label2, dL2) = builder.new_input::<Vec<Vec<(u32, u32, u32)>>>();
 
             let mut label_probe1 = ProbeHandle::new();
 
-            dL1.flat_map(move |x| (0 .. peers as u64).step_by(num_threads).map(move |i| (i,x.clone())))
-                .exchange(|ix| ix.0)
-                .map(|(_i,x)| x)
-                .map(move |x| {
-                    let mut edge_label = edge_label1.write().unwrap();
-                    edge_label[x.0 as usize] = x.1;
-                })
-                //.inspect(move|x| println!("worder {}:\t {:?}", index, x))
-                .probe_with(&mut label_probe1);
+            let mut xx = dL1;
+            for i in 0..num_processes {
+                let edge_label1 = edge_label.clone();
+                xx = xx.exchange(move |_| ((index + ((i + 1) * num_threads) as u32) % peers) as u64)
+                    .map(move |x|{
+                        let mut edge_label = edge_label1.write().unwrap();
+                        edge_label[x.0 as usize] = x.clone().1;
+                        x
+                    })
+           //         .
+            }
+            xx.probe_with(&mut label_probe1);
+
+//            dL1.flat_map(move |x| (0 .. peers as u64).step_by(num_threads).map(move |i| (i,x.clone())))
+//                .exchange(|ix| ix.0)
+//                .map(|(_i,x)| x)
+//                .map(move |x| {
+//                    let mut edge_label = edge_label1.write().unwrap();
+//                    edge_label[x.0 as usize] = x.1;
+//                })
+//                //.inspect(move|x| println!("worker {}:\t {:?}", index, x))
+//                .probe_with(&mut label_probe1);
 
             // Please see triangles for more information on "graph" and dG.
             let (graph, dG) = builder.new_input::<(u32, u32)>();

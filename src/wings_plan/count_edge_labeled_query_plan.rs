@@ -82,7 +82,7 @@ impl EdgeLabeledPlan{
         let start_idx = root.edge_start_idx;
         let end_idx = root.edge_start_idx + root.num_edges;
 
-        for index in start_idx .. end_idx{
+        for index in start_idx .. end_idx {
             let child = self.edges[index].dst.clone();
             let child1 = self.edges[index].dst.clone();
 
