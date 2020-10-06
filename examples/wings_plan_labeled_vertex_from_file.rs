@@ -9,12 +9,20 @@ use alg3_dynamic::wings_plan::*;
 use timely::communication::{Configuration};
 use timely::dataflow::{ProbeHandle};
 use timely::dataflow::operators::*;
+
+use std::io::BufReader;
+use std::error::Error;
+use std::fs::File;
+use std::io::prelude::*;
+use std::path::Path;
 use std::collections::HashMap;
+
+type Label = u32;
 
 #[allow(non_snake_case)]
 fn main () {
-    //datasetDirectory  batchSize  numBatch  baseSize  planFile vertexLabelDirectory
-    let start = ::std::time::Instant::now();
+    //datasetFile  batchSize  numBatch  baseSize  planFile vertexLabelFile
+    let start_main = ::std::time::Instant::now();
 
     let send = Arc::new(Mutex::new(0));
     let send2 = send.clone();
@@ -23,12 +31,11 @@ fn main () {
     let inspect = ::std::env::args().find(|x| x == "inspect").is_some();
 
     //read vertex label
-    let vertex_label_dirname = std::env::args().nth(6).unwrap();
-    let mut vertex_label_reader = DirReader::new(&vertex_label_dirname);
-    let vertex_id_label_map = Arc::new(vertex_label_reader.read_vertex_labels());
+    let vertex_label_filename = std::env::args().nth(6).unwrap();
+    let vertex_id_label_map = Arc::new(read_vertex_id_label_mapping(&vertex_label_filename));
 
     timely::execute_from_args(std::env::args(), move |root| {
-
+        
         let start_dataflow = ::std::time::Instant::now();
         let send = send.clone();
         let counters = labeled_query_count.clone();
@@ -61,7 +68,7 @@ fn main () {
 
             let mut probe = ProbeHandle::new();
 
-            plan.track_motif(&graph_index, &mut probe, send,counters, vertex_id_label_map);
+            plan.track_motif(&graph_index, &mut probe, send, counters, vertex_id_label_map);
 
             (graph, query, graph_index.forward.handle , graph_index.reverse.handle, probe, handles)
         });
@@ -75,20 +82,43 @@ fn main () {
         let batch_size = batch_size / num_processes;
         let num_batches: usize = std::env::args().nth(3).unwrap().parse().unwrap();
         let base_size: usize = std::env::args().nth(4).unwrap().parse().unwrap();
-        let base_size = base_size / num_processes;
+        let limit = (base_size / num_processes) as usize;
 
-        let mut dir_reader_option: Option<DirReader> = None;
-
-       //let mut reader_option: Option<BufReader<File>> = None;
+        let mut reader_option: Option<BufReader<File>> = None;
         let mut edges = Vec::new();
 
         if local_index == 0 {
-            let graph_dirname = std::env::args().nth(1).unwrap();
-            dir_reader_option = Some(DirReader::new(&graph_dirname));
+            let graph_filename = std::env::args().nth(1).unwrap();
+            let path = Path::new(&graph_filename);
+            let display = path.display();
 
-            let reader = dir_reader_option.as_mut().unwrap();
+            // Open the path in read-only mode, returns `io::Result<File>`
+            let file = match File::open(&path) {
+                // The `description` method of `io::Error` returns a string that describes the error
+                Err(why) => {
+                    panic!("EXCEPTION: couldn't open {}: {}",
+                           display,
+                           Error::description(&why))
+                }
+                Ok(file) => file,
+            };
 
-            edges = reader.read_edges(base_size);
+            reader_option = Some(BufReader::new(file));
+            let reader = reader_option.as_mut().unwrap();
+
+            let mut num_edges = 0;
+
+            while num_edges < limit {
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                if !line.starts_with('#') && line.len() > 0 {
+                    let elts: Vec<&str> = line[..].split_whitespace().collect();
+                    let src: u32 = elts[0].parse().ok().expect("malformed src");
+                    let dst: u32 = elts[1].parse().ok().expect("malformed dst");
+                    edges.push((src, dst));
+                    num_edges += 1;
+                }
+            }
         }
 
         // synchronize with other workers.
@@ -143,7 +173,7 @@ fn main () {
             let mut edgesQ = Vec::new();
             if local_index == 0 {
                 read_start = ::std::time::Instant::now();
-                edgesQ = dir_reader_option.as_mut().unwrap().read_edges(batch_size).iter().map(|&(src, dst)| ((src, dst), 1)).collect::<Vec<_>>();
+                edgesQ = read_batch_edges(&mut reader_option.as_mut().unwrap(), batch_size, index);
                 batch_start = ::std::time::Instant::now();
             }
 
@@ -178,7 +208,7 @@ fn main () {
 //                pattern_matching_time.push(batch_end.duration_since(batch_mid));
 //
 //                if (batch_index + 1) % 100 == 0 {
-//                    let idx_start = batch_index;
+//                    let idx_start = batch_index - 99;
 //                    let idx_end = batch_index + 1;
 //                    for idx in idx_start..idx_end {
 //                        println!("Batch {} read edge time: {:?}", idx, read_edge_time[idx - idx_start]);
@@ -210,7 +240,60 @@ fn main () {
     else { 0 };
 
     if inspect {
-        println!("elapsed: {:?}\ttotal matchings at this process: {:?}", start.elapsed(), total);
+        println!("elapsed: {:?}\ttotal matchings at this process: {:?}", start_main.elapsed(), total);
     }
+}
+
+fn read_batch_edges(reader: &mut BufReader<File>, batch: usize, index: u32) -> Vec<((u32, u32), i32)>{
+    println!("Worker {} start: Read batch with {} edges", index, batch);
+
+    let mut batch_edges = Vec::new();
+    let mut num_edges = 0;
+
+    while num_edges < batch {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        if !line.starts_with('#') && line.len() > 0 {
+            let elts: Vec<&str> = line[..].split_whitespace().collect();
+            let src: u32 = elts[0].parse().ok().expect("malformed src");
+            let dst: u32 = elts[1].parse().ok().expect("malformed dst");
+            batch_edges.push(((src, dst),1));
+            num_edges += 1;
+        }
+    }
+
+    println!("Worker {} end: Read batch with {} edges", index, batch);
+
+    batch_edges
+}
+
+fn read_vertex_id_label_mapping(filename: &String) -> HashMap<u32, u32> {
+    let mut vertex_label_map = HashMap::new();
+
+    let path = Path::new(&filename);
+    let display = path.display();
+    let file = match File::open(&path) {
+        // The `description` method of `io::Error` returns a string that describes the error
+        Err(why) => {
+            panic!("EXCEPTION: couldn't open {}: {}",
+                   display,
+                   Error::description(&why))
+        }
+        Ok(file) => file,
+    };
+
+    let reader = BufReader::new(file);
+
+    for line in reader.lines() {
+        let good_line = line.ok().expect("EXCEPTION: read error");
+        if good_line.len() > 0 {
+            let elts: Vec<&str> = good_line[..].split_whitespace().collect();
+            let node: Node = elts[0].parse().ok().expect("malformed node");
+            let label: Label = elts[1].parse().ok().expect("malformed label");
+            vertex_label_map.insert(node, label);
+        }
+    }
+
+    vertex_label_map
 }
 

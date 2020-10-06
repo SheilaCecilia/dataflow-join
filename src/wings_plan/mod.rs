@@ -1,4 +1,5 @@
-pub mod plan;
+pub mod count_vertex_labeled_query_plan;
+pub mod count_edge_labeled_query_plan;
 pub mod graph_stream;
 pub mod dir_reader;
 
@@ -11,7 +12,8 @@ pub use super::Indexable;
 
 pub use self::graph_stream::GraphStreamIndex;
 
-pub use self::plan::{Plan};
+pub use self::count_vertex_labeled_query_plan::{VertexLabeledPlan};
+pub use self::count_edge_labeled_query_plan::{EdgeLabeledPlan};
 pub use self::dir_reader::DirReader;
 pub use super::wings_rule::{Index, IndexStream, advance, StreamPrefixExtender, StreamPrefixIntersector, Intersection, GenericJoin, IntersectOnly};
 

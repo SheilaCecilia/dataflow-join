@@ -30,7 +30,7 @@ fn main () {
         let peers = root.peers();
 
         let plan_filename = std::env::args().nth(3).unwrap();
-        let plan = plan::read_plan(&plan_filename);
+        let plan = count_vertex_labeled_query_plan::read_plan(&plan_filename);
 
         // handles to input and probe, but also both indices so we can compact them.
         let (mut input, forward_probe, reverse_probe, probe, handles) = root.dataflow::<u32,_,_>(|builder| {

@@ -24,6 +24,11 @@ pub type Node = u32;
 pub type Edge = (Node, Node);
 type Label = u32;
 
+#[derive(Debug, Default, Clone)]
+struct Graph {
+    adj_list: Vec<Vec<Node>>
+}
+
 #[derive(Debug, Default)]
 pub struct PlanNode{
     // edges[edge_start_idx, edge_start_idx + num_edges] are the out edges of this node
@@ -31,7 +36,7 @@ pub struct PlanNode{
     num_edges: usize,
     subgraph_num_vertices: usize,
     is_query: bool,
-    idx: usize
+    idx: usize,
 }
 
 #[derive(Debug, Default)]
@@ -51,13 +56,14 @@ pub struct PlanEdge{
 }
 
 #[derive(Debug, Default)]
-pub struct Plan{
+pub struct VertexLabeledPlan{
     edges: Vec<PlanEdge>,
     nodes: Vec<Rc<PlanNode>>,
     root_node_id: usize,
+    node_graph_map:  Vec<Graph>
 }
 
-impl Plan{
+impl VertexLabeledPlan{
     pub fn track_motif<H1, H2, G: Scope>(&self, graph: &GraphStreamIndex<G, H1, H2>, probe: &mut ProbeHandle<G::Timestamp>, counter: Arc<Mutex<u64>>, labeled_counters: Arc<RwLock<HashMap<(usize,Vec<u32>),Mutex<u64>>>>, vertex_id_label_map: Arc<HashMap<u32, u32>>)
         where H1: Fn(Node)->u64 + 'static,
               H2: Fn(Node)->u64 + 'static
@@ -154,10 +160,49 @@ impl Plan{
         }
     }
 
+    fn construct_node_graph(&mut self, root: Rc<PlanNode>) {
+        let start_idx = root.edge_start_idx;
+        let end_idx = root.edge_start_idx + root.num_edges;
+        for index in start_idx .. end_idx {
+            //println!("Root id: {} enter {}:{}", root.idx);
+            let child = self.edges[index].dst.clone();
+            let child_id = child.idx;
+
+            //copy root.graph to child.graph
+            self.node_graph_map[child_id] = self.node_graph_map[root.idx].clone();
+
+            let plan_edge = &self.edges[index];
+            if !plan_edge.extensions.is_empty() {
+                self.node_graph_map[child_id].adj_list.push(Vec::new());
+            }
+
+            for operation in &plan_edge.operations {
+                if operation.is_forward {
+                    self.node_graph_map[child_id].adj_list[operation.src_key].push(operation.dst_key as u32);
+                } else {
+                    self.node_graph_map[child_id].adj_list[operation.dst_key].push(operation.src_key as u32);
+                }
+            }
+
+            for list in &mut self.node_graph_map[child_id].adj_list {
+                list.sort();
+            }
+
+            //println!("Graph {}:{:?}", child_id, self.node_graph_map[child_id]);
+
+            self.construct_node_graph(child);
+        }
+    }
+
     fn initialize(&mut self){
         for edge in &mut self.edges {
             edge.initialize();
         }
+        let root = self.nodes[self.root_node_id].clone();
+        self.node_graph_map[self.root_node_id].adj_list.push(Vec::new());
+        self.node_graph_map[self.root_node_id].adj_list.push(Vec::new());
+        self.node_graph_map[self.root_node_id].adj_list[0].push(1);
+        self.construct_node_graph(root);
     }
 }
 
@@ -200,7 +245,7 @@ impl PlanEdge{
 }
 
 
-pub fn read_plan(filename:&str) -> Plan{
+pub fn read_plan(filename:&str) -> VertexLabeledPlan{
     let path = Path::new(filename);
     let display = path.display();
 
@@ -214,7 +259,7 @@ pub fn read_plan(filename:&str) -> Plan{
     };
 
     let mut reader = BufReader::new(file);
-    let mut plan:Plan = Default::default();
+    let mut plan:VertexLabeledPlan = Default::default();
 
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
@@ -226,16 +271,18 @@ pub fn read_plan(filename:&str) -> Plan{
     let mut line = String::new();
     reader.read_line(&mut line).unwrap();
     let nodes: usize = line.trim().parse().unwrap();
+    plan.node_graph_map = vec![Graph{adj_list: Vec::new()}; nodes];
 
     for idx in 0 .. nodes {
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
         let elts: Vec<&str> = line[..].split_whitespace().collect();
-        let edge_start_idx:usize = elts[0].parse().unwrap();
+        let edge_start_idx: usize = elts[0].parse().unwrap();
         let num_edges: usize = elts[1].parse().unwrap();
         let subgraph_num_vertices: usize = elts[2].parse().unwrap();
         let is_query: usize = elts[3].parse().unwrap();
         let is_query = if is_query == 1 { true } else {false};
+        //let node_graph = Graph {adj_list: vec![Vec::new(),subgraph_num_vertices]};
         plan.nodes.push(Rc::new(PlanNode{ edge_start_idx, num_edges, subgraph_num_vertices, is_query, idx}));
     }
 
